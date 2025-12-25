@@ -199,21 +199,61 @@ The database already has useful functions that could be wrapped by MCP tools:
 
 ## Implementation Phases
 
-### Phase 1: Core Queries
-- Device energy consumption (single device)
-- Device listing and search
-- Basic time range support (day, week, month)
+### Phase 1: Foundation & Data Mapping
 
-### Phase 2: Advanced Queries
-- Device group/asset aggregations
-- Peak demand analysis
-- Cost calculations
+**Goal:** Establish the semantic layer that maps database quantities to human-readable metrics.
 
-### Phase 3: Enhancements
-- Device comparisons
-- Trend analysis
-- Anomaly detection hints
-- Export capabilities
+| Deliverable | Description |
+|-------------|-------------|
+| Quantities Mapping | Document all `quantities` entries with semantic categorization (WAGE) |
+| Metric Aliases | Map natural language terms → quantity IDs (e.g., "energy" → [62, 89, 96, 124, 130, 481]) |
+| Aggregation Rules | Define how each quantity type should be aggregated (SUM, AVG, MAX, MIN) |
+| Unit Conversions | Handle unit display (kW, MW, kWh, m³, etc.) |
+
+**Phase 1 Tools:**
+- `list_quantities` - Browse available metrics with categories and units
+- `list_devices` - Browse devices with fuzzy search
+- `list_tenants` - Browse available tenants
+
+**Reference:** See [quantities-mapping.md](./quantities-mapping.md) for the complete mapping specification.
+
+### Phase 2: Core Query Tools
+
+**Goal:** Implement device and group-level queries across all WAGE categories.
+
+| Tool | Supported Metrics |
+|------|-------------------|
+| `get_device_telemetry` | Any quantity - energy, power, voltage, current, flow, pressure, etc. |
+| `get_group_telemetry` | Aggregate by tag/asset hierarchy |
+| `get_peak_analysis` | Peak demand (power), peak flow, etc. |
+| `get_cost_summary` | Energy costs with time-of-use rates |
+
+**Phase 2 Features:**
+- Smart time range selection (auto-select `telemetry_data` vs `telemetry_15min_agg`)
+- Adaptive bucketing based on query duration
+- Fuzzy device matching with disambiguation
+- Multi-quantity queries (e.g., "show power and power factor")
+
+### Phase 3: Advanced Analytics
+
+**Goal:** Comparative analysis, trends, and insights.
+
+| Tool | Purpose |
+|------|---------|
+| `compare_devices` | Side-by-side device comparison |
+| `get_trend_analysis` | Period-over-period comparisons |
+| `detect_anomalies` | Flag unusual consumption patterns |
+| `get_power_quality` | Voltage/current unbalance, power factor analysis |
+| `export_data` | CSV/JSON export for external analysis |
+
+### Phase 4: Production Readiness
+
+**Goal:** Multi-tenant authentication and web interface.
+
+- Web-based chat UI with tenant isolation
+- Authentication using repurposed `auth_*` tables
+- Rate limiting (if needed based on Phase 2-3 monitoring)
+- Audit logging
 
 ---
 
