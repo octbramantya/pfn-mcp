@@ -9,6 +9,7 @@ from mcp.types import TextContent, Tool
 
 from pfn_mcp import db
 from pfn_mcp.config import settings
+from pfn_mcp.tools import device_quantities as device_quantities_tool
 from pfn_mcp.tools import devices as devices_tool
 from pfn_mcp.tools import quantities as quantities_tool
 from pfn_mcp.tools import tenants as tenants_tool
@@ -89,6 +90,63 @@ async def list_tools() -> list[Tool]:
                 "required": [],
             },
         ),
+        Tool(
+            name="list_device_quantities",
+            description=(
+                "List quantities available for a specific device. "
+                "Shows what measurements exist in telemetry for the device. "
+                "Supports semantic search for quantity types."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "device_id": {
+                        "type": "integer",
+                        "description": "Device ID to query",
+                    },
+                    "device_name": {
+                        "type": "string",
+                        "description": "Device name (fuzzy search)",
+                    },
+                    "search": {
+                        "type": "string",
+                        "description": (
+                            "Filter by quantity type: voltage, power, energy, "
+                            "current, thd, etc."
+                        ),
+                    },
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="compare_device_quantities",
+            description=(
+                "Compare quantities available across multiple devices. "
+                "Shows shared quantities and per-device breakdown. "
+                "Useful for finding common measurements between devices."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "device_ids": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "description": "List of device IDs to compare",
+                    },
+                    "device_names": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of device names (fuzzy search)",
+                    },
+                    "search": {
+                        "type": "string",
+                        "description": "Filter by quantity type: voltage, power, etc.",
+                    },
+                },
+                "required": [],
+            },
+        ),
     ]
 
 
@@ -135,6 +193,38 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text=response)]
         except Exception as e:
             logger.error(f"list_quantities failed: {e}")
+            return [TextContent(type="text", text=f"Error: {e}")]
+
+    elif name == "list_device_quantities":
+        device_id = arguments.get("device_id")
+        device_name = arguments.get("device_name")
+        search = arguments.get("search")
+        try:
+            result = await device_quantities_tool.list_device_quantities(
+                device_id=device_id,
+                device_name=device_name,
+                search=search,
+            )
+            response = device_quantities_tool.format_device_quantities_response(result)
+            return [TextContent(type="text", text=response)]
+        except Exception as e:
+            logger.error(f"list_device_quantities failed: {e}")
+            return [TextContent(type="text", text=f"Error: {e}")]
+
+    elif name == "compare_device_quantities":
+        device_ids = arguments.get("device_ids")
+        device_names = arguments.get("device_names")
+        search = arguments.get("search")
+        try:
+            result = await device_quantities_tool.compare_device_quantities(
+                device_ids=device_ids,
+                device_names=device_names,
+                search=search,
+            )
+            response = device_quantities_tool.format_compare_quantities_response(result)
+            return [TextContent(type="text", text=response)]
+        except Exception as e:
+            logger.error(f"compare_device_quantities failed: {e}")
             return [TextContent(type="text", text=f"Error: {e}")]
 
     else:
