@@ -42,21 +42,42 @@ src/pfn_mcp/
 ├── server.py      # MCP server entry point, tool registration (@mcp.list_tools, @mcp.call_tool)
 ├── db.py          # asyncpg connection pool (init_pool, fetch_all, fetch_one, fetch_val)
 ├── config.py      # Pydantic settings from environment
-└── tools/         # Tool implementations (one file per tool)
-    ├── quantities.py  # list_quantities with QUANTITY_ALIASES for semantic search
-    ├── devices.py     # list_devices with fuzzy match ranking
-    └── tenants.py     # list_tenants with device counts
+├── sse_server.py  # SSE/HTTP transport for remote deployment (VPS)
+└── tools/         # Tool implementations (one file per tool group)
+    ├── tenants.py           # list_tenants
+    ├── devices.py           # list_devices with fuzzy match ranking
+    ├── quantities.py        # list_quantities with QUANTITY_ALIASES for semantic search
+    ├── device_quantities.py # list_device_quantities, compare_device_quantities
+    └── discovery.py         # Data exploration tools (data range, freshness, info)
 ```
 
 **Key patterns:**
-- Each tool module exports `list_*()` async function and `format_*_response()` formatter
+- Each tool module exports async function(s) and `format_*_response()` formatter
 - Database queries use positional parameters (`$1`, `$2`) for asyncpg
 - Server initializes DB pool on startup, closes in `finally` block
+- Semantic search via `QUANTITY_ALIASES` dict in quantities.py
+
+## Available Tools (Phase 1)
+
+| Tool | Description |
+|------|-------------|
+| `list_tenants` | List all tenants with device counts |
+| `list_devices` | Search devices by name (fuzzy match) |
+| `list_quantities` | List measurement types with semantic search (voltage, power, etc.) |
+| `list_device_quantities` | What quantities exist for a specific device |
+| `compare_device_quantities` | Find shared quantities across multiple devices |
+| `get_device_data_range` | Time range of available data for a device |
+| `find_devices_by_quantity` | Which devices have data for a specific quantity |
+| `get_device_info` | Full device details including metadata (slave_id@IP) |
+| `check_data_freshness` | Identify offline/stale/online meters |
+| `get_tenant_summary` | Tenant overview with device counts and models |
 
 ## Database Context
 
 - **Tenants**: Multi-tenant system (tenants table with tenant_name, tenant_code)
 - **Devices**: Power meters with display_name, device_code, linked to tenant_id
+  - `metadata` JSONB contains: `device_info` (manufacturer, model), `data_concentrator` (slave_id, ip_address, port), `location`, `communication`
+  - Unique key for admins: `slave_id@ip_address` combination
 - **Quantities**: WAGE metrics (77 in use) - query `quantities` table, filter by `telemetry_15min_agg`
 - **Telemetry**: Raw data in `telemetry_data` (14 days), aggregates in `telemetry_15min_agg` (2 years)
 
