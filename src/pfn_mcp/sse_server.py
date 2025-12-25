@@ -8,7 +8,7 @@ from mcp.server.sse import SseServerTransport
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
-from starlette.routing import Route
+from starlette.routing import Mount, Route
 
 from pfn_mcp import db
 from pfn_mcp.config import settings
@@ -21,12 +21,10 @@ logger = logging.getLogger(__name__)
 sse_transport = SseServerTransport("/messages/")
 
 
-async def handle_sse(request: Request):
-    """Handle SSE connection for MCP communication."""
-    logger.info(f"New SSE connection from {request.client.host if request.client else 'unknown'}")
-    async with sse_transport.connect_sse(
-        request.scope, request.receive, request._send
-    ) as streams:
+async def handle_sse(scope, receive, send):
+    """Handle SSE connection for MCP communication (raw ASGI)."""
+    logger.info("New SSE connection")
+    async with sse_transport.connect_sse(scope, receive, send) as streams:
         await mcp.run(
             streams[0],
             streams[1],
@@ -34,9 +32,9 @@ async def handle_sse(request: Request):
         )
 
 
-async def handle_messages(request: Request):
-    """Handle POST messages from MCP client."""
-    await sse_transport.handle_post_message(request.scope, request.receive, request._send)
+async def handle_messages(scope, receive, send):
+    """Handle POST messages from MCP client (raw ASGI)."""
+    await sse_transport.handle_post_message(scope, receive, send)
 
 
 async def health_check(request: Request):
@@ -91,8 +89,8 @@ app = Starlette(
     routes=[
         Route("/", endpoint=root, methods=["GET"]),
         Route("/health", endpoint=health_check, methods=["GET"]),
-        Route("/sse", endpoint=handle_sse, methods=["GET"]),
-        Route("/messages/", endpoint=handle_messages, methods=["POST"]),
+        Mount("/sse", app=handle_sse),
+        Mount("/messages/", app=handle_messages),
     ],
     lifespan=lifespan,
 )
