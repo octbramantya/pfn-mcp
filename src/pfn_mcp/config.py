@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     # Server settings
     server_name: str = "pfn-mcp"
     server_version: str = "0.1.0"
+    server_host: str = "0.0.0.0"
+    server_port: int = 8000
 
     # Timezone for user-facing output
     display_timezone: str = "Asia/Jakarta"

@@ -1,0 +1,28 @@
+[Unit]
+Description=PFN MCP Server (SSE Transport)
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=pfn
+Group=pfn
+WorkingDirectory=/opt/pfn-mcp
+Environment=PATH=/opt/pfn-mcp/.venv/bin:/usr/bin
+EnvironmentFile=/opt/pfn-mcp/.env
+ExecStart=/opt/pfn-mcp/.venv/bin/python -m pfn_mcp.sse_server
+Restart=always
+RestartSec=5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pfn-mcp
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/pfn-mcp
+
+[Install]
+WantedBy=multi-user.target
