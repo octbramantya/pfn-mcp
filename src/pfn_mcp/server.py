@@ -11,6 +11,7 @@ from pfn_mcp import db
 from pfn_mcp.config import settings
 from pfn_mcp.tools import device_quantities as device_quantities_tool
 from pfn_mcp.tools import devices as devices_tool
+from pfn_mcp.tools import discovery as discovery_tool
 from pfn_mcp.tools import quantities as quantities_tool
 from pfn_mcp.tools import tenants as tenants_tool
 
@@ -147,6 +148,139 @@ async def list_tools() -> list[Tool]:
                 "required": [],
             },
         ),
+        # Discovery tools
+        Tool(
+            name="get_device_data_range",
+            description=(
+                "Get the time range of available data for a device. "
+                "Shows earliest/latest data timestamps, days of data, and quantity breakdown. "
+                "Essential for knowing what date ranges to query."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "device_id": {
+                        "type": "integer",
+                        "description": "Device ID to query",
+                    },
+                    "device_name": {
+                        "type": "string",
+                        "description": "Device name (fuzzy search)",
+                    },
+                    "quantity_id": {
+                        "type": "integer",
+                        "description": "Optional: check specific quantity",
+                    },
+                    "quantity_search": {
+                        "type": "string",
+                        "description": "Optional: filter by quantity type (voltage, power, etc.)",
+                    },
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="find_devices_by_quantity",
+            description=(
+                "Find all devices that have data for a specific quantity. "
+                "Useful for finding which devices track a particular metric. "
+                "Groups results by tenant."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "quantity_id": {
+                        "type": "integer",
+                        "description": "Quantity ID to search for",
+                    },
+                    "quantity_search": {
+                        "type": "string",
+                        "description": "Quantity search term (voltage, power, energy, etc.)",
+                    },
+                    "tenant_id": {
+                        "type": "integer",
+                        "description": "Optional: filter to specific tenant",
+                    },
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="get_device_info",
+            description=(
+                "Get detailed device information including metadata. "
+                "Shows manufacturer, model, Modbus address (slave_id + IP), "
+                "location, and communication protocol. "
+                "Unique key for admins: slave_id@ip_address."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "device_id": {
+                        "type": "integer",
+                        "description": "Device ID to query",
+                    },
+                    "device_name": {
+                        "type": "string",
+                        "description": "Device name (fuzzy search)",
+                    },
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="check_data_freshness",
+            description=(
+                "Check when data was last received for device(s). "
+                "Identifies offline, stale, or recently active meters. "
+                "Can check single device or all devices for a tenant."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "device_id": {
+                        "type": "integer",
+                        "description": "Device ID to check",
+                    },
+                    "device_name": {
+                        "type": "string",
+                        "description": "Device name (fuzzy search)",
+                    },
+                    "tenant_id": {
+                        "type": "integer",
+                        "description": "Check all devices for a tenant",
+                    },
+                    "hours_threshold": {
+                        "type": "integer",
+                        "description": "Hours to consider data 'stale' (default: 24)",
+                        "default": 24,
+                    },
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="get_tenant_summary",
+            description=(
+                "Get comprehensive tenant overview. "
+                "Shows device counts, data range, quantity coverage by category, "
+                "and device models. Good starting point for tenant analysis."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "tenant_id": {
+                        "type": "integer",
+                        "description": "Tenant ID to query",
+                    },
+                    "tenant_name": {
+                        "type": "string",
+                        "description": "Tenant name (fuzzy search)",
+                    },
+                },
+                "required": [],
+            },
+        ),
     ]
 
 
@@ -225,6 +359,86 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text=response)]
         except Exception as e:
             logger.error(f"compare_device_quantities failed: {e}")
+            return [TextContent(type="text", text=f"Error: {e}")]
+
+    elif name == "get_device_data_range":
+        device_id = arguments.get("device_id")
+        device_name = arguments.get("device_name")
+        quantity_id = arguments.get("quantity_id")
+        quantity_search = arguments.get("quantity_search")
+        try:
+            result = await discovery_tool.get_device_data_range(
+                device_id=device_id,
+                device_name=device_name,
+                quantity_id=quantity_id,
+                quantity_search=quantity_search,
+            )
+            response = discovery_tool.format_device_data_range_response(result)
+            return [TextContent(type="text", text=response)]
+        except Exception as e:
+            logger.error(f"get_device_data_range failed: {e}")
+            return [TextContent(type="text", text=f"Error: {e}")]
+
+    elif name == "find_devices_by_quantity":
+        quantity_id = arguments.get("quantity_id")
+        quantity_search = arguments.get("quantity_search")
+        tenant_id = arguments.get("tenant_id")
+        try:
+            result = await discovery_tool.find_devices_by_quantity(
+                quantity_id=quantity_id,
+                quantity_search=quantity_search,
+                tenant_id=tenant_id,
+            )
+            response = discovery_tool.format_find_devices_response(result)
+            return [TextContent(type="text", text=response)]
+        except Exception as e:
+            logger.error(f"find_devices_by_quantity failed: {e}")
+            return [TextContent(type="text", text=f"Error: {e}")]
+
+    elif name == "get_device_info":
+        device_id = arguments.get("device_id")
+        device_name = arguments.get("device_name")
+        try:
+            result = await discovery_tool.get_device_info(
+                device_id=device_id,
+                device_name=device_name,
+            )
+            response = discovery_tool.format_device_info_response(result)
+            return [TextContent(type="text", text=response)]
+        except Exception as e:
+            logger.error(f"get_device_info failed: {e}")
+            return [TextContent(type="text", text=f"Error: {e}")]
+
+    elif name == "check_data_freshness":
+        device_id = arguments.get("device_id")
+        device_name = arguments.get("device_name")
+        tenant_id = arguments.get("tenant_id")
+        hours_threshold = arguments.get("hours_threshold", 24)
+        try:
+            result = await discovery_tool.check_data_freshness(
+                device_id=device_id,
+                device_name=device_name,
+                tenant_id=tenant_id,
+                hours_threshold=hours_threshold,
+            )
+            response = discovery_tool.format_data_freshness_response(result)
+            return [TextContent(type="text", text=response)]
+        except Exception as e:
+            logger.error(f"check_data_freshness failed: {e}")
+            return [TextContent(type="text", text=f"Error: {e}")]
+
+    elif name == "get_tenant_summary":
+        tenant_id = arguments.get("tenant_id")
+        tenant_name = arguments.get("tenant_name")
+        try:
+            result = await discovery_tool.get_tenant_summary(
+                tenant_id=tenant_id,
+                tenant_name=tenant_name,
+            )
+            response = discovery_tool.format_tenant_summary_response(result)
+            return [TextContent(type="text", text=response)]
+        except Exception as e:
+            logger.error(f"get_tenant_summary failed: {e}")
             return [TextContent(type="text", text=f"Error: {e}")]
 
     else:
