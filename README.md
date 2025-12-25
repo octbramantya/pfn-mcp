@@ -58,6 +58,11 @@ For remote SSE server:
 curl -sSL https://raw.githubusercontent.com/octbramantya/pfn-mcp/main/deploy/setup.sh | bash
 ```
 
+To update after deploying new tools:
+```bash
+pfn-update
+```
+
 Or manually:
 ```bash
 cd /opt/pfn-mcp

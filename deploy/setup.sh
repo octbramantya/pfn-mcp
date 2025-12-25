@@ -48,6 +48,11 @@ cp deploy/pfn-mcp.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable pfn-mcp
 
+# Install update script
+echo "Installing update script..."
+cp deploy/update.sh /usr/local/bin/pfn-update
+chmod +x /usr/local/bin/pfn-update
+
 echo ""
 echo "=== Deployment Complete ==="
 echo ""
