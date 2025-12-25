@@ -1,0 +1,98 @@
+                                                                                                 List of relations
+ Schema |              Name               |       Type        |  Owner   | Persistence | Access method |    Size    |                                          Description                                          
+--------+---------------------------------+-------------------+----------+-------------+---------------+------------+-----------------------------------------------------------------------------------------------
+ public | asset_connections               | table             | postgres | permanent   | heap          | 16 kB      | 
+ public | asset_connections_id_seq        | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | asset_files                     | table             | postgres | permanent   | heap          | 0 bytes    | 
+ public | asset_files_id_seq              | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | asset_tags                      | table             | postgres | permanent   | heap          | 8192 bytes | 
+ public | asset_tags_id_seq               | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | assets                          | table             | postgres | permanent   | heap          | 64 kB      | 
+ public | assets_id_seq                   | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | audit_logs                      | table             | postgres | permanent   | heap          | 8192 bytes | 
+ public | audit_logs_id_seq               | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | auth_audit_logs                 | table             | postgres | permanent   | heap          | 8192 bytes | 
+ public | auth_audit_logs_id_seq          | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | auth_email_verifications        | table             | postgres | permanent   | heap          | 8192 bytes | 
+ public | auth_email_verifications_id_seq | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | auth_oauth_providers            | table             | postgres | permanent   | heap          | 8192 bytes | 
+ public | auth_oauth_providers_id_seq     | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | auth_password_resets            | table             | postgres | permanent   | heap          | 8192 bytes | 
+ public | auth_password_resets_id_seq     | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | auth_permissions                | table             | postgres | permanent   | heap          | 16 kB      | 
+ public | auth_permissions_id_seq         | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | auth_products                   | table             | postgres | permanent   | heap          | 16 kB      | 
+ public | auth_products_id_seq            | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | auth_role_permissions           | table             | postgres | permanent   | heap          | 8192 bytes | 
+ public | auth_role_permissions_id_seq    | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | auth_roles                      | table             | postgres | permanent   | heap          | 16 kB      | 
+ public | auth_roles_id_seq               | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | auth_user_oauth                 | table             | postgres | permanent   | heap          | 8192 bytes | 
+ public | auth_user_oauth_id_seq          | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | auth_user_sessions              | table             | postgres | permanent   | heap          | 104 kB     | 
+ public | auth_user_sessions_id_seq       | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | auth_user_tenants               | table             | postgres | permanent   | heap          | 16 kB      | 
+ public | auth_user_tenants_id_seq        | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | auth_users                      | table             | postgres | permanent   | heap          | 48 kB      | 
+ public | auth_users_id_seq               | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | daily_energy_cost_summary       | table             | postgres | permanent   | heap          | 24 MB      | 
+ public | daily_energy_cost_summary_old   | table             | postgres | permanent   | heap          | 9256 kB    | 
+ public | daily_energy_refresh_log        | table             | postgres | permanent   | heap          | 344 kB     | 
+ public | daily_energy_refresh_log_id_seq | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | device_alerts                   | table             | postgres | permanent   | heap          | 8192 bytes | Device alerts for equipment status monitoring and maintenance notifications
+ public | device_alerts_id_seq            | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | device_consumption_patterns     | materialized view | postgres | permanent   | heap          | 9768 kB    | 
+ public | device_files                    | table             | postgres | permanent   | heap          | 0 bytes    | 
+ public | device_files_id_seq             | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | device_mappings                 | table             | postgres | permanent   | heap          | 16 kB      | 
+ public | device_mappings_id_seq          | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | device_tags                     | table             | postgres | permanent   | heap          | 8192 bytes | 
+ public | device_tags_id_seq              | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | device_utility_mappings         | table             | postgres | permanent   | heap          | 48 kB      | Maps devices to their corresponding utility sources for billing and cost allocation
+ public | device_utility_mappings_id_seq  | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | devices                         | table             | postgres | permanent   | heap          | 112 kB     | 
+ public | devices_id_seq                  | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | energy_costs                    | table             | postgres | permanent   | heap          | 0 bytes    | 
+ public | energy_costs_id_seq             | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | enpi_calculations               | table             | postgres | permanent   | heap          | 8192 bytes | 
+ public | enpi_calculations_id_seq        | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | file_storage                    | table             | postgres | permanent   | heap          | 8192 bytes | 
+ public | file_storage_id_seq             | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | hotspot_coordinates             | table             | postgres | permanent   | heap          | 0 bytes    | 
+ public | hotspot_coordinates_id_seq      | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | operational_data                | table             | postgres | permanent   | heap          | 0 bytes    | 
+ public | operational_data_id_seq         | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | pme_quantity_mapping            | table             | postgres | permanent   | heap          | 712 kB     | 
+ public | processed_gaps                  | table             | postgres | permanent   | heap          | 48 kB      | 
+ public | processed_gaps_id_seq           | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | quantities                      | table             | postgres | permanent   | heap          | 1240 kB    | 
+ public | quantities_id_seq               | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | redistributed_intervals         | table             | postgres | permanent   | heap          | 216 kB     | 
+ public | redistributed_intervals_id_seq  | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | sankey_levels                   | table             | postgres | permanent   | heap          | 16 kB      | Defines hierarchical levels for each sankey mapping
+ public | sankey_levels_id_seq            | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | sankey_links                    | table             | postgres | permanent   | heap          | 8192 bytes | Defines connections between sankey nodes with telemetry aggregation rules
+ public | sankey_links_id_seq             | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | sankey_mappings                 | table             | postgres | permanent   | heap          | 16 kB      | Defines different sankey diagram types available for each tenant
+ public | sankey_mappings_id_seq          | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | sankey_mappings_summary         | view              | postgres | permanent   |               | 0 bytes    | 
+ public | sankey_nodes                    | table             | postgres | permanent   | heap          | 16 kB      | Pre-configured nodes for sankey mappings (optional, supports dynamic generation)
+ public | sankey_nodes_id_seq             | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | shared_quantities_summary       | view              | postgres | permanent   |               | 0 bytes    | 
+ public | telemetry_15min_agg             | view              | postgres | permanent   |               | 0 bytes    | 
+ public | telemetry_data                  | table             | postgres | permanent   | heap          | 8192 bytes | 
+ public | telemetry_intervals_cumulative  | view              | postgres | permanent   |               | 0 bytes    | 
+ public | telemetry_unified_raw           | materialized view | postgres | permanent   | heap          | 8192 bytes | 
+ public | tenant_shift_periods            | table             | postgres | permanent   | heap          | 16 kB      | 
+ public | tenant_shift_periods_id_seq     | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | tenants                         | table             | postgres | permanent   | heap          | 16 kB      | 
+ public | tenants_id_seq                  | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | tou_rate_periods                | table             | postgres | permanent   | heap          | 8192 bytes | 
+ public | tou_rate_periods_id_seq         | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | user_tenant_access_debug        | view              | postgres | permanent   |               | 0 bytes    | 
+ public | utility_rates                   | table             | postgres | permanent   | heap          | 16 kB      | Enhanced rate table supporting multiple rate structures across all utility types
+ public | utility_rates_id_seq            | sequence          | postgres | permanent   |               | 8192 bytes | 
+ public | utility_sources                 | table             | postgres | permanent   | heap          | 16 kB      | Defines utility sources/suppliers for different utility types (electricity, gas, water, etc.)
+ public | utility_sources_id_seq          | sequence          | postgres | permanent   |               | 8192 bytes | 
+(93 rows)
+
