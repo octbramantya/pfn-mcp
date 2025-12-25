@@ -9,7 +9,9 @@ from mcp.types import TextContent, Tool
 
 from pfn_mcp import db
 from pfn_mcp.config import settings
+from pfn_mcp.tools import devices as devices_tool
 from pfn_mcp.tools import quantities as quantities_tool
+from pfn_mcp.tools import tenants as tenants_tool
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -89,13 +91,29 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     logger.info(f"Tool called: {name} with arguments: {arguments}")
 
     if name == "list_tenants":
-        # TODO: Implement with database layer
-        return [TextContent(type="text", text="list_tenants: Not yet implemented")]
+        try:
+            results = await tenants_tool.list_tenants()
+            response = tenants_tool.format_tenants_response(results)
+            return [TextContent(type="text", text=response)]
+        except Exception as e:
+            logger.error(f"list_tenants failed: {e}")
+            return [TextContent(type="text", text=f"Error: {e}")]
 
     elif name == "list_devices":
-        # TODO: Implement with database layer
-        search = arguments.get("search", "")
-        return [TextContent(type="text", text=f"list_devices(search={search!r}): Not implemented")]
+        search = arguments.get("search")
+        tenant_id = arguments.get("tenant_id")
+        limit = arguments.get("limit", 20)
+        try:
+            results = await devices_tool.list_devices(
+                search=search,
+                tenant_id=tenant_id,
+                limit=limit,
+            )
+            response = devices_tool.format_devices_response(results, search)
+            return [TextContent(type="text", text=response)]
+        except Exception as e:
+            logger.error(f"list_devices failed: {e}")
+            return [TextContent(type="text", text=f"Error: {e}")]
 
     elif name == "list_quantities":
         category = arguments.get("category")
