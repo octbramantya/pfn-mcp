@@ -11,16 +11,31 @@ QUANTITY_ALIASES = {
     "energy": ["ACTIVE_ENERGY", "APPARENT_ENERGY", "REACTIVE_ENERGY"],
     "power": ["ACTIVE_POWER", "APPARENT_POWER", "REACTIVE_POWER"],
     "voltage": ["VOLTAGE"],
+    "volt": ["VOLTAGE"],
     "current": ["CURRENT"],
+    "amp": ["CURRENT"],
     "power factor": ["POWER_FACTOR", "TRUE_POWER_FAC", "DISPLACEMENT_POWER_F"],
+    "pf": ["POWER_FACTOR", "TRUE_POWER_FAC", "DISPLACEMENT_POWER_F"],
     "frequency": ["FREQUENCY"],
     "thd": ["THD"],
+    "harmonic": ["THD"],
     "unbalance": ["UNBALANCE"],
     "water": ["WATER"],
     "air": ["AIR"],
     "temperature": ["TEMPERATURE"],
     "flow": ["FLOW"],
     "volume": ["VOLUME"],
+}
+
+# Category aliases - map user input to actual database values
+CATEGORY_ALIASES = {
+    "electrical": "Electricity",
+    "electricity": "Electricity",
+    "electric": "Electricity",
+    "power": "Electricity",
+    "water": "Water",
+    "air": "Air",
+    "gas": "Gas",
 }
 
 
@@ -52,10 +67,11 @@ async def list_quantities(
         """
         conditions.append(in_use_subquery)
 
-    # Category filter
+    # Category filter - normalize using aliases
     if category:
-        conditions.append(f"UPPER(q.category) = ${param_idx}")
-        params.append(category.upper())
+        normalized_category = CATEGORY_ALIASES.get(category.lower(), category)
+        conditions.append(f"q.category ILIKE ${param_idx}")
+        params.append(normalized_category)
         param_idx += 1
 
     # Search filter - check for semantic aliases first

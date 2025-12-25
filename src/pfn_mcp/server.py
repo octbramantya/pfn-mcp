@@ -63,20 +63,27 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="list_quantities",
             description=(
-                "List available measurement quantities (metrics) with their units "
-                "and categories (WAGE: Water, Air, Gas, Electricity)"
+                "List available measurement quantities (metrics). "
+                "Supports semantic search: 'voltage', 'power', 'energy', 'current', "
+                "'power factor', 'thd', 'frequency', 'water', 'air'. "
+                "Categories: Electricity, Water, Air, Gas."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "category": {
                         "type": "string",
-                        "description": "Filter by category: WATER, AIR, GAS, or ELECTRICAL",
-                        "enum": ["WATER", "AIR", "GAS", "ELECTRICAL"],
+                        "description": (
+                            "Filter by WAGE category. Accepts: "
+                            "electricity/electrical, water, air, gas"
+                        ),
                     },
                     "search": {
                         "type": "string",
-                        "description": "Search term to filter quantities by name or code",
+                        "description": (
+                            "Semantic search term: voltage, power, energy, current, "
+                            "power factor, thd, frequency, unbalance, water, air"
+                        ),
                     },
                 },
                 "required": [],
