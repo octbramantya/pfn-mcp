@@ -23,18 +23,42 @@ sse_transport = SseServerTransport("/messages/")
 
 async def handle_sse(scope, receive, send):
     """Handle SSE connection for MCP communication (raw ASGI)."""
-    logger.info("New SSE connection")
-    async with sse_transport.connect_sse(scope, receive, send) as streams:
-        await mcp.run(
-            streams[0],
-            streams[1],
-            mcp.create_initialization_options(),
-        )
+    # Only handle GET requests for SSE stream
+    if scope["method"] == "GET":
+        logger.info("New SSE connection")
+        async with sse_transport.connect_sse(scope, receive, send) as streams:
+            await mcp.run(
+                streams[0],
+                streams[1],
+                mcp.create_initialization_options(),
+            )
+    else:
+        # Return 405 Method Not Allowed for non-GET
+        await send({
+            "type": "http.response.start",
+            "status": 405,
+            "headers": [[b"content-type", b"text/plain"]],
+        })
+        await send({
+            "type": "http.response.body",
+            "body": b"Method Not Allowed. Use GET for SSE, POST to /messages/",
+        })
 
 
 async def handle_messages(scope, receive, send):
     """Handle POST messages from MCP client (raw ASGI)."""
-    await sse_transport.handle_post_message(scope, receive, send)
+    if scope["method"] == "POST":
+        await sse_transport.handle_post_message(scope, receive, send)
+    else:
+        await send({
+            "type": "http.response.start",
+            "status": 405,
+            "headers": [[b"content-type", b"text/plain"]],
+        })
+        await send({
+            "type": "http.response.body",
+            "body": b"Method Not Allowed. Use POST for messages.",
+        })
 
 
 async def health_check(request: Request):
