@@ -482,6 +482,47 @@ async def list_tools() -> list[Tool]:
                 "required": ["device"],
             },
         ),
+        Tool(
+            name="get_electricity_cost_ranking",
+            description=(
+                "Rank devices by electricity cost or consumption within a tenant. "
+                "Shows top consumers with percentage of total. "
+                "Use for identifying high-cost equipment or usage patterns."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "tenant": {
+                        "type": "string",
+                        "description": "Tenant name (fuzzy match, required)",
+                    },
+                    "period": {
+                        "type": "string",
+                        "description": "Time period: '7d', '30d', '1M' (default: 30d)",
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "description": "Explicit start date (YYYY-MM-DD)",
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "description": "Explicit end date (YYYY-MM-DD)",
+                    },
+                    "metric": {
+                        "type": "string",
+                        "description": "Ranking metric: 'cost' or 'consumption' (default: cost)",
+                        "enum": ["cost", "consumption"],
+                        "default": "cost",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Number of results (default: 10)",
+                        "default": 10,
+                    },
+                },
+                "required": ["tenant"],
+            },
+        ),
     ]
 
 
@@ -727,6 +768,27 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text=response)]
         except Exception as e:
             logger.error(f"get_electricity_cost_breakdown failed: {e}")
+            return [TextContent(type="text", text=f"Error: {e}")]
+
+    elif name == "get_electricity_cost_ranking":
+        tenant = arguments.get("tenant")
+        if not tenant:
+            return [TextContent(type="text", text="Error: tenant is required")]
+        try:
+            result = await electricity_cost_tool.get_electricity_cost_ranking(
+                tenant=tenant,
+                period=arguments.get("period"),
+                start_date=arguments.get("start_date"),
+                end_date=arguments.get("end_date"),
+                metric=arguments.get("metric", "cost"),
+                limit=arguments.get("limit", 10),
+            )
+            response = electricity_cost_tool.format_electricity_cost_ranking_response(
+                result
+            )
+            return [TextContent(type="text", text=response)]
+        except Exception as e:
+            logger.error(f"get_electricity_cost_ranking failed: {e}")
             return [TextContent(type="text", text=f"Error: {e}")]
 
     else:

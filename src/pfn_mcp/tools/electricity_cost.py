@@ -739,3 +739,173 @@ def format_electricity_cost_breakdown_response(result: dict) -> str:
             )
 
     return "\n".join(lines)
+
+
+MetricType = Literal["cost", "consumption"]
+
+
+async def get_electricity_cost_ranking(
+    tenant: str,
+    period: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    metric: MetricType = "cost",
+    limit: int = 10,
+) -> dict:
+    """
+    Rank devices by electricity consumption or cost within a tenant.
+
+    Args:
+        tenant: Tenant name (fuzzy match, required)
+        period: Time period - "7d", "30d", "1M", "2025-12", etc. (default: 30d)
+        start_date: Explicit start date (YYYY-MM-DD)
+        end_date: Explicit end date (YYYY-MM-DD)
+        metric: Ranking metric - "cost" or "consumption" (default: cost)
+        limit: Number of results (default: 10)
+
+    Returns:
+        Dictionary with tenant, period, metric, and ranked devices
+    """
+    # Resolve tenant (required)
+    tenant_id, tenant_info, error = await _resolve_tenant(tenant)
+    if error:
+        return {"error": error}
+
+    # Parse period (default to 30d for ranking)
+    if not period and not start_date:
+        period = "30d"
+
+    result = parse_period(period, start_date, end_date)
+    if result[0] is None:
+        return {"error": result[1]}
+
+    query_start, query_end = result
+
+    # Determine ORDER BY based on metric
+    order_col = "total_cost" if metric == "cost" else "total_consumption"
+
+    # Query aggregated by device
+    query = f"""
+        SELECT
+            d.id as device_id,
+            d.display_name as device,
+            COALESCE(SUM(decs.total_consumption), 0) as consumption_kwh,
+            COALESCE(SUM(decs.total_cost), 0) as cost_rp
+        FROM daily_energy_cost_summary decs
+        JOIN devices d ON decs.device_id = d.id
+        WHERE decs.tenant_id = $1
+          AND decs.quantity_id = $2
+          AND decs.daily_bucket >= $3
+          AND decs.daily_bucket < $4
+        GROUP BY d.id, d.display_name
+        ORDER BY {order_col} DESC
+        LIMIT $5
+    """
+
+    rows = await db.fetch_all(
+        query, tenant_id, ACTIVE_ENERGY_QTY_ID, query_start, query_end, limit
+    )
+
+    # Get tenant totals for percentage calculation
+    totals_query = """
+        SELECT
+            COALESCE(SUM(total_consumption), 0) as total_consumption,
+            COALESCE(SUM(total_cost), 0) as total_cost
+        FROM daily_energy_cost_summary
+        WHERE tenant_id = $1
+          AND quantity_id = $2
+          AND daily_bucket >= $3
+          AND daily_bucket < $4
+    """
+
+    totals = await db.fetch_one(
+        totals_query, tenant_id, ACTIVE_ENERGY_QTY_ID, query_start, query_end
+    )
+
+    tenant_total_consumption = float(totals["total_consumption"] or 0)
+    tenant_total_cost = float(totals["total_cost"] or 0)
+
+    # Build ranking data
+    ranking_data = []
+    for rank, row in enumerate(rows, 1):
+        consumption = float(row.get("consumption_kwh", 0) or 0)
+        cost = float(row.get("cost_rp", 0) or 0)
+
+        # Calculate percentage based on metric
+        if metric == "cost":
+            pct = 100 * cost / tenant_total_cost if tenant_total_cost > 0 else 0
+        else:
+            pct = (
+                100 * consumption / tenant_total_consumption
+                if tenant_total_consumption > 0
+                else 0
+            )
+
+        ranking_data.append({
+            "rank": rank,
+            "device": row.get("device"),
+            "device_id": row.get("device_id"),
+            "consumption_kwh": round(consumption, 2),
+            "cost_rp": round(cost, 2),
+            "percentage_of_total": round(pct, 1),
+        })
+
+    # Format period string
+    start_str = query_start.strftime("%Y-%m-%d")
+    end_str = (query_end - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    return {
+        "tenant": tenant_info.get("tenant_name"),
+        "tenant_id": tenant_id,
+        "period": f"{start_str} to {end_str}",
+        "metric": metric,
+        "total_devices": len(ranking_data),
+        "tenant_totals": {
+            "consumption_kwh": round(tenant_total_consumption, 2),
+            "cost_rp": round(tenant_total_cost, 2),
+        },
+        "ranking": ranking_data,
+    }
+
+
+def format_electricity_cost_ranking_response(result: dict) -> str:
+    """Format get_electricity_cost_ranking response for human-readable output."""
+    if "error" in result:
+        return f"Error: {result['error']}"
+
+    tenant = result["tenant"]
+    period = result["period"]
+    metric = result["metric"]
+    totals = result["tenant_totals"]
+    ranking = result["ranking"]
+
+    metric_label = "Cost" if metric == "cost" else "Consumption"
+
+    lines = [
+        f"## Electricity Ranking: {tenant}",
+        f"**Period**: {period}",
+        f"**Ranked by**: {metric_label}",
+        "",
+        f"**Tenant Total**: {totals['consumption_kwh']:,.2f} kWh, "
+        f"Rp {totals['cost_rp']:,.0f}",
+        "",
+        "### Top Devices",
+        "",
+    ]
+
+    if not ranking:
+        lines.append("No data available for this period.")
+        return "\n".join(lines)
+
+    for item in ranking:
+        rank = item["rank"]
+        device = item["device"]
+        kwh = item["consumption_kwh"]
+        rp = item["cost_rp"]
+        pct = item["percentage_of_total"]
+
+        lines.append(
+            f"{rank}. **{device}**: {kwh:,.2f} kWh, Rp {rp:,.0f} ({pct}%)"
+        )
+
+    return "\n".join(lines)
