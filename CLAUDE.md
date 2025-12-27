@@ -48,7 +48,8 @@ src/pfn_mcp/
     ├── devices.py           # list_devices with fuzzy match ranking
     ├── quantities.py        # list_quantities with QUANTITY_ALIASES for semantic search
     ├── device_quantities.py # list_device_quantities, compare_device_quantities
-    └── discovery.py         # Data exploration tools (data range, freshness, info)
+    ├── discovery.py         # Data exploration tools (data range, freshness, info)
+    └── telemetry.py         # Phase 2 time-series tools (resolve_device, etc.)
 ```
 
 **Key patterns:**
@@ -71,6 +72,12 @@ src/pfn_mcp/
 | `get_device_info` | Full device details including metadata (slave_id@IP) |
 | `check_data_freshness` | Identify offline/stale/online meters |
 | `get_tenant_summary` | Tenant overview with device counts and models |
+
+## Available Tools (Phase 2)
+
+| Tool | Description |
+|------|-------------|
+| `resolve_device` | Confirm device selection before telemetry queries (exact/partial/fuzzy match confidence) |
 
 ## Database Context
 

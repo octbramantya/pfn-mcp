@@ -13,6 +13,7 @@ from pfn_mcp.tools import device_quantities as device_quantities_tool
 from pfn_mcp.tools import devices as devices_tool
 from pfn_mcp.tools import discovery as discovery_tool
 from pfn_mcp.tools import quantities as quantities_tool
+from pfn_mcp.tools import telemetry as telemetry_tool
 from pfn_mcp.tools import tenants as tenants_tool
 
 # Configure logging
@@ -281,6 +282,35 @@ async def list_tools() -> list[Tool]:
                 "required": [],
             },
         ),
+        # Telemetry tools (Phase 2)
+        Tool(
+            name="resolve_device",
+            description=(
+                "Confirm device selection before querying telemetry. "
+                "Returns ranked candidates with match confidence (exact/partial/fuzzy). "
+                "Use BEFORE get_device_telemetry when user provides device name, not ID. "
+                "Prevents wrong-device queries from ambiguous fuzzy matches."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "search": {
+                        "type": "string",
+                        "description": "Device name search term",
+                    },
+                    "tenant_id": {
+                        "type": "integer",
+                        "description": "Optional tenant ID to filter devices",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum candidates to return (default: 5)",
+                        "default": 5,
+                    },
+                },
+                "required": ["search"],
+            },
+        ),
     ]
 
 
@@ -439,6 +469,22 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text=response)]
         except Exception as e:
             logger.error(f"get_tenant_summary failed: {e}")
+            return [TextContent(type="text", text=f"Error: {e}")]
+
+    elif name == "resolve_device":
+        search = arguments.get("search", "")
+        tenant_id = arguments.get("tenant_id")
+        limit = arguments.get("limit", 5)
+        try:
+            result = await telemetry_tool.resolve_device(
+                search=search,
+                tenant_id=tenant_id,
+                limit=limit,
+            )
+            response = telemetry_tool.format_resolve_device_response(result)
+            return [TextContent(type="text", text=response)]
+        except Exception as e:
+            logger.error(f"resolve_device failed: {e}")
             return [TextContent(type="text", text=f"Error: {e}")]
 
     else:
