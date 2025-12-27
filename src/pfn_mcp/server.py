@@ -443,6 +443,45 @@ async def list_tools() -> list[Tool]:
                 "required": [],
             },
         ),
+        Tool(
+            name="get_electricity_cost_breakdown",
+            description=(
+                "Detailed electricity cost breakdown for a device. "
+                "Groups by shift (SHIFT1/2/3), rate (WBP/LWBP), source (PLN/Solar), "
+                "or combined shift+rate. Use for shift productivity or rate analysis."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "device": {
+                        "type": "string",
+                        "description": "Device name (fuzzy match, required)",
+                    },
+                    "period": {
+                        "type": "string",
+                        "description": "Time period: '7d', '1M', '2025-12' (default: 7d)",
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "description": "Explicit start date (YYYY-MM-DD)",
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "description": "Explicit end date (YYYY-MM-DD)",
+                    },
+                    "group_by": {
+                        "type": "string",
+                        "description": (
+                            "Grouping: 'shift', 'rate', 'source', 'shift_rate' "
+                            "(default: shift_rate)"
+                        ),
+                        "enum": ["shift", "rate", "source", "shift_rate"],
+                        "default": "shift_rate",
+                    },
+                },
+                "required": ["device"],
+            },
+        ),
     ]
 
 
@@ -668,6 +707,26 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text=response)]
         except Exception as e:
             logger.error(f"get_electricity_cost failed: {e}")
+            return [TextContent(type="text", text=f"Error: {e}")]
+
+    elif name == "get_electricity_cost_breakdown":
+        device = arguments.get("device")
+        if not device:
+            return [TextContent(type="text", text="Error: device is required")]
+        try:
+            result = await electricity_cost_tool.get_electricity_cost_breakdown(
+                device=device,
+                period=arguments.get("period"),
+                start_date=arguments.get("start_date"),
+                end_date=arguments.get("end_date"),
+                group_by=arguments.get("group_by", "shift_rate"),
+            )
+            response = electricity_cost_tool.format_electricity_cost_breakdown_response(
+                result
+            )
+            return [TextContent(type="text", text=response)]
+        except Exception as e:
+            logger.error(f"get_electricity_cost_breakdown failed: {e}")
             return [TextContent(type="text", text=f"Error: {e}")]
 
     else:

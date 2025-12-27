@@ -499,3 +499,243 @@ def format_electricity_cost_response(result: dict) -> str:
                 lines.append(f"- **{source}**: {kwh:,.2f} kWh ({pct}%), Rp {rp:,.0f}")
 
     return "\n".join(lines)
+
+
+GroupByType = Literal["shift", "rate", "source", "shift_rate"]
+
+
+async def get_electricity_cost_breakdown(
+    device: str,
+    period: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    group_by: GroupByType = "shift_rate",
+) -> dict:
+    """
+    Get detailed electricity cost breakdown for a device.
+
+    Provides consumption and cost analysis grouped by shift, rate,
+    utility source, or shift+rate combination.
+
+    Args:
+        device: Device name (fuzzy match, required)
+        period: Time period - "7d", "1M", "2025-12", etc. (default: 7d)
+        start_date: Explicit start date (YYYY-MM-DD)
+        end_date: Explicit end date (YYYY-MM-DD)
+        group_by: Grouping type - "shift", "rate", "source", "shift_rate"
+
+    Returns:
+        Dictionary with device, period, and breakdown data
+    """
+    # Resolve device (required)
+    device_id, device_info, error = await _resolve_device(device)
+    if error:
+        return {"error": error}
+
+    # Parse period
+    result = parse_period(period, start_date, end_date)
+    if result[0] is None:
+        return {"error": result[1]}
+
+    query_start, query_end = result
+
+    # Build base conditions
+    conditions = [
+        "quantity_id = $1",
+        "daily_bucket >= $2",
+        "daily_bucket < $3",
+        "device_id = $4",
+    ]
+    params: list = [ACTIVE_ENERGY_QTY_ID, query_start, query_end, device_id]
+
+    where_clause = " AND ".join(conditions)
+
+    # Build GROUP BY query based on group_by type
+    if group_by == "shift":
+        query = f"""
+            SELECT
+                shift_period as shift,
+                COALESCE(SUM(total_consumption), 0) as consumption_kwh,
+                COALESCE(SUM(total_cost), 0) as cost_rp
+            FROM daily_energy_cost_summary
+            WHERE {where_clause}
+            GROUP BY shift_period
+            ORDER BY shift_period
+        """
+    elif group_by == "rate":
+        query = f"""
+            SELECT
+                COALESCE(rate_code, 'UNMAPPED') as rate,
+                COALESCE(SUM(total_consumption), 0) as consumption_kwh,
+                COALESCE(SUM(total_cost), 0) as cost_rp,
+                AVG(rate_per_unit) as avg_rate_per_unit
+            FROM daily_energy_cost_summary
+            WHERE {where_clause}
+            GROUP BY rate_code
+            ORDER BY consumption_kwh DESC
+        """
+    elif group_by == "source":
+        query = """
+            SELECT
+                COALESCE(us.source_name, 'UNMAPPED') as source,
+                COALESCE(SUM(decs.total_consumption), 0) as consumption_kwh,
+                COALESCE(SUM(decs.total_cost), 0) as cost_rp
+            FROM daily_energy_cost_summary decs
+            LEFT JOIN utility_sources us ON decs.utility_source_id = us.id
+            WHERE decs.quantity_id = $1
+              AND decs.daily_bucket >= $2
+              AND decs.daily_bucket < $3
+              AND decs.device_id = $4
+            GROUP BY us.source_name
+            ORDER BY consumption_kwh DESC
+        """
+    else:  # shift_rate (default)
+        query = f"""
+            SELECT
+                shift_period as shift,
+                COALESCE(rate_code, 'UNMAPPED') as rate,
+                COALESCE(SUM(total_consumption), 0) as consumption_kwh,
+                COALESCE(SUM(total_cost), 0) as cost_rp,
+                AVG(rate_per_unit) as avg_rate_per_unit
+            FROM daily_energy_cost_summary
+            WHERE {where_clause}
+            GROUP BY shift_period, rate_code
+            ORDER BY shift_period, rate_code
+        """
+
+    rows = await db.fetch_all(query, *params)
+
+    # Calculate totals for percentages
+    total_consumption = sum(float(r.get("consumption_kwh", 0) or 0) for r in rows)
+    total_cost = sum(float(r.get("cost_rp", 0) or 0) for r in rows)
+
+    # Build breakdown data
+    breakdown_data = []
+    for row in rows:
+        consumption = float(row.get("consumption_kwh", 0) or 0)
+        cost = float(row.get("cost_rp", 0) or 0)
+
+        item = {
+            "consumption_kwh": round(consumption, 2),
+            "cost_rp": round(cost, 2),
+            "percentage": round(100 * consumption / total_consumption, 1)
+            if total_consumption > 0
+            else 0,
+        }
+
+        # Add group-specific fields
+        if group_by == "shift":
+            item["shift"] = row.get("shift")
+        elif group_by == "rate":
+            item["rate"] = row.get("rate")
+            rate_per_unit = row.get("avg_rate_per_unit")
+            if rate_per_unit:
+                item["rate_per_kwh"] = round(float(rate_per_unit), 2)
+        elif group_by == "source":
+            item["source"] = row.get("source")
+        else:  # shift_rate
+            item["shift"] = row.get("shift")
+            item["rate"] = row.get("rate")
+            rate_per_unit = row.get("avg_rate_per_unit")
+            if rate_per_unit:
+                item["rate_per_kwh"] = round(float(rate_per_unit), 2)
+
+        breakdown_data.append(item)
+
+    # Format period string
+    start_str = query_start.strftime("%Y-%m-%d")
+    end_str = (query_end - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    return {
+        "device": device_info.get("display_name"),
+        "device_id": device_id,
+        "tenant": device_info.get("tenant_name"),
+        "period": f"{start_str} to {end_str}",
+        "group_by": group_by,
+        "summary": {
+            "total_consumption_kwh": round(total_consumption, 2),
+            "total_cost_rp": round(total_cost, 2),
+        },
+        "breakdown": breakdown_data,
+    }
+
+
+def format_electricity_cost_breakdown_response(result: dict) -> str:
+    """Format get_electricity_cost_breakdown response for human-readable output."""
+    if "error" in result:
+        return f"Error: {result['error']}"
+
+    device = result["device"]
+    period = result["period"]
+    group_by = result["group_by"]
+    summary = result["summary"]
+    breakdown = result["breakdown"]
+
+    lines = [
+        f"## Electricity Breakdown: {device}",
+        f"**Period**: {period}",
+        f"**Grouped by**: {group_by}",
+        "",
+        f"**Total**: {summary['total_consumption_kwh']:,.2f} kWh, "
+        f"Rp {summary['total_cost_rp']:,.0f}",
+        "",
+        "### Breakdown",
+        "",
+    ]
+
+    if not breakdown:
+        lines.append("No data available for this period.")
+        return "\n".join(lines)
+
+    # Format based on group_by type
+    if group_by == "shift":
+        for item in breakdown:
+            shift = item.get("shift", "?")
+            kwh = item["consumption_kwh"]
+            rp = item["cost_rp"]
+            pct = item["percentage"]
+            lines.append(f"- **{shift}**: {kwh:,.2f} kWh ({pct}%), Rp {rp:,.0f}")
+
+    elif group_by == "rate":
+        for item in breakdown:
+            rate = item.get("rate", "?")
+            kwh = item["consumption_kwh"]
+            rp = item["cost_rp"]
+            pct = item["percentage"]
+            rate_per = item.get("rate_per_kwh", 0)
+            lines.append(
+                f"- **{rate}**: {kwh:,.2f} kWh ({pct}%), "
+                f"Rp {rp:,.0f} @ Rp {rate_per:,.2f}/kWh"
+            )
+
+    elif group_by == "source":
+        for item in breakdown:
+            source = item.get("source", "?")
+            kwh = item["consumption_kwh"]
+            rp = item["cost_rp"]
+            pct = item["percentage"]
+            lines.append(f"- **{source}**: {kwh:,.2f} kWh ({pct}%), Rp {rp:,.0f}")
+
+    else:  # shift_rate
+        # Group by shift for display
+        current_shift = None
+        for item in breakdown:
+            shift = item.get("shift", "?")
+            rate = item.get("rate", "?")
+            kwh = item["consumption_kwh"]
+            rp = item["cost_rp"]
+            pct = item["percentage"]
+            rate_per = item.get("rate_per_kwh", 0)
+
+            if shift != current_shift:
+                if current_shift is not None:
+                    lines.append("")
+                lines.append(f"**{shift}**")
+                current_shift = shift
+
+            lines.append(
+                f"  - {rate}: {kwh:,.2f} kWh ({pct}%), "
+                f"Rp {rp:,.0f} @ Rp {rate_per:,.2f}/kWh"
+            )
+
+    return "\n".join(lines)
