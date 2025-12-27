@@ -311,6 +311,89 @@ async def list_tools() -> list[Tool]:
                 "required": ["search"],
             },
         ),
+        Tool(
+            name="get_device_telemetry",
+            description=(
+                "Fetch time-series telemetry data for a device. "
+                "Returns aggregated data (avg, min, max, sum, count) with adaptive bucketing. "
+                "Supports period strings (24h, 7d, 30d) or date ranges. "
+                "Use resolve_device first if device name is ambiguous."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "device_id": {
+                        "type": "integer",
+                        "description": "Device ID (preferred over device_name)",
+                    },
+                    "device_name": {
+                        "type": "string",
+                        "description": "Device name (fuzzy search)",
+                    },
+                    "quantity_id": {
+                        "type": "integer",
+                        "description": "Quantity ID (preferred over quantity_search)",
+                    },
+                    "quantity_search": {
+                        "type": "string",
+                        "description": (
+                            "Quantity search: voltage, power, energy, current, "
+                            "power factor, thd, frequency"
+                        ),
+                    },
+                    "period": {
+                        "type": "string",
+                        "description": "Time period: 1h, 24h, 7d, 30d, 3M, 1Y",
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "description": "Start date (ISO format, alternative to period)",
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "description": "End date (ISO format, defaults to now)",
+                    },
+                    "bucket": {
+                        "type": "string",
+                        "description": "Bucket size: 15min, 1hour, 4hour, 1day, 1week, auto",
+                        "default": "auto",
+                    },
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="get_quantity_stats",
+            description=(
+                "Pre-flight validation before telemetry queries. "
+                "Returns data availability stats: point count, min/max/avg values, "
+                "first/last timestamps, data completeness percentage, and gaps. "
+                "Use to verify data exists before calling get_device_telemetry."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "device_id": {
+                        "type": "integer",
+                        "description": "Device ID to query",
+                    },
+                    "quantity_id": {
+                        "type": "integer",
+                        "description": "Quantity ID (preferred over quantity_search)",
+                    },
+                    "quantity_search": {
+                        "type": "string",
+                        "description": "Quantity search: voltage, power, energy, etc.",
+                    },
+                    "period": {
+                        "type": "string",
+                        "description": "Time period to check (default: 30d)",
+                        "default": "30d",
+                    },
+                },
+                "required": ["device_id"],
+            },
+        ),
     ]
 
 
@@ -485,6 +568,41 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text=response)]
         except Exception as e:
             logger.error(f"resolve_device failed: {e}")
+            return [TextContent(type="text", text=f"Error: {e}")]
+
+    elif name == "get_device_telemetry":
+        try:
+            result = await telemetry_tool.get_device_telemetry(
+                device_id=arguments.get("device_id"),
+                device_name=arguments.get("device_name"),
+                quantity_id=arguments.get("quantity_id"),
+                quantity_search=arguments.get("quantity_search"),
+                period=arguments.get("period"),
+                start_date=arguments.get("start_date"),
+                end_date=arguments.get("end_date"),
+                bucket=arguments.get("bucket", "auto"),
+            )
+            response = telemetry_tool.format_telemetry_response(result)
+            return [TextContent(type="text", text=response)]
+        except Exception as e:
+            logger.error(f"get_device_telemetry failed: {e}")
+            return [TextContent(type="text", text=f"Error: {e}")]
+
+    elif name == "get_quantity_stats":
+        device_id = arguments.get("device_id")
+        if device_id is None:
+            return [TextContent(type="text", text="Error: device_id is required")]
+        try:
+            result = await telemetry_tool.get_quantity_stats(
+                device_id=device_id,
+                quantity_id=arguments.get("quantity_id"),
+                quantity_search=arguments.get("quantity_search"),
+                period=arguments.get("period", "30d"),
+            )
+            response = telemetry_tool.format_quantity_stats_response(result)
+            return [TextContent(type="text", text=response)]
+        except Exception as e:
+            logger.error(f"get_quantity_stats failed: {e}")
             return [TextContent(type="text", text=f"Error: {e}")]
 
     else:

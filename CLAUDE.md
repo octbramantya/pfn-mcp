@@ -78,6 +78,8 @@ src/pfn_mcp/
 | Tool | Description |
 |------|-------------|
 | `resolve_device` | Confirm device selection before telemetry queries (exact/partial/fuzzy match confidence) |
+| `get_device_telemetry` | Fetch time-series data with adaptive bucketing (15min→1week based on range) |
+| `get_quantity_stats` | Pre-flight validation: data availability, completeness %, value ranges |
 
 ## Database Context
 
