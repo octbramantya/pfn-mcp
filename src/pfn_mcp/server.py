@@ -12,6 +12,7 @@ from pfn_mcp.config import settings
 from pfn_mcp.tools import device_quantities as device_quantities_tool
 from pfn_mcp.tools import devices as devices_tool
 from pfn_mcp.tools import discovery as discovery_tool
+from pfn_mcp.tools import electricity_cost as electricity_cost_tool
 from pfn_mcp.tools import quantities as quantities_tool
 from pfn_mcp.tools import telemetry as telemetry_tool
 from pfn_mcp.tools import tenants as tenants_tool
@@ -394,6 +395,54 @@ async def list_tools() -> list[Tool]:
                 "required": ["device_id"],
             },
         ),
+        # Electricity cost tools
+        Tool(
+            name="get_electricity_cost",
+            description=(
+                "Get electricity consumption and cost for a device or tenant. "
+                "Queries pre-aggregated daily cost data with time-of-use rates. "
+                "Supports breakdown by: daily, shift, rate (WBP/LWBP), or source (PLN/Solar). "
+                "Period formats: '7d', '1M', '2025-12', or 'YYYY-MM-DD to YYYY-MM-DD'."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "device": {
+                        "type": "string",
+                        "description": "Device name (fuzzy match)",
+                    },
+                    "tenant": {
+                        "type": "string",
+                        "description": "Tenant name (fuzzy match)",
+                    },
+                    "period": {
+                        "type": "string",
+                        "description": (
+                            "Time period: '7d', '30d', '1M', '2025-12', "
+                            "or 'YYYY-MM-DD to YYYY-MM-DD' (default: 7d)"
+                        ),
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "description": "Explicit start date (YYYY-MM-DD)",
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "description": "Explicit end date (YYYY-MM-DD)",
+                    },
+                    "breakdown": {
+                        "type": "string",
+                        "description": (
+                            "Breakdown type: 'none', 'daily', 'shift', 'rate', 'source' "
+                            "(default: none)"
+                        ),
+                        "enum": ["none", "daily", "shift", "rate", "source"],
+                        "default": "none",
+                    },
+                },
+                "required": [],
+            },
+        ),
     ]
 
 
@@ -603,6 +652,22 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text=response)]
         except Exception as e:
             logger.error(f"get_quantity_stats failed: {e}")
+            return [TextContent(type="text", text=f"Error: {e}")]
+
+    elif name == "get_electricity_cost":
+        try:
+            result = await electricity_cost_tool.get_electricity_cost(
+                device=arguments.get("device"),
+                tenant=arguments.get("tenant"),
+                period=arguments.get("period"),
+                start_date=arguments.get("start_date"),
+                end_date=arguments.get("end_date"),
+                breakdown=arguments.get("breakdown", "none"),
+            )
+            response = electricity_cost_tool.format_electricity_cost_response(result)
+            return [TextContent(type="text", text=response)]
+        except Exception as e:
+            logger.error(f"get_electricity_cost failed: {e}")
             return [TextContent(type="text", text=f"Error: {e}")]
 
     else:
