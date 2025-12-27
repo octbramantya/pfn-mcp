@@ -909,3 +909,220 @@ def format_electricity_cost_ranking_response(result: dict) -> str:
         )
 
     return "\n".join(lines)
+
+
+def _format_period_label(period: str) -> str:
+    """Convert period string to human-readable label."""
+    # Try month format (2025-12)
+    match = MONTH_PERIOD.match(period.strip())
+    if match:
+        year = int(match.group(1))
+        month = int(match.group(2))
+        month_names = [
+            "", "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December"
+        ]
+        return f"{month_names[month]} {year}"
+
+    # Try relative period (7d, 30d)
+    match = RELATIVE_PERIOD.match(period.strip())
+    if match:
+        value = match.group(1)
+        unit = match.group(2).lower()
+        unit_names = {"d": "days", "w": "weeks", "m": "months", "y": "years"}
+        return f"Last {value} {unit_names.get(unit, 'days')}"
+
+    # Return as-is for date ranges
+    return period
+
+
+async def _get_period_totals(
+    device_id: int | None,
+    tenant_id: int | None,
+    start_dt: datetime,
+    end_dt: datetime,
+) -> dict:
+    """Get consumption and cost totals for a period."""
+    conditions = [
+        "quantity_id = $1",
+        "daily_bucket >= $2",
+        "daily_bucket < $3",
+    ]
+    params: list = [ACTIVE_ENERGY_QTY_ID, start_dt, end_dt]
+    param_idx = 4
+
+    if device_id:
+        conditions.append(f"device_id = ${param_idx}")
+        params.append(device_id)
+    elif tenant_id:
+        conditions.append(f"tenant_id = ${param_idx}")
+        params.append(tenant_id)
+
+    where_clause = " AND ".join(conditions)
+
+    query = f"""
+        SELECT
+            COALESCE(SUM(total_consumption), 0) as consumption_kwh,
+            COALESCE(SUM(total_cost), 0) as cost_rp
+        FROM daily_energy_cost_summary
+        WHERE {where_clause}
+    """
+
+    row = await db.fetch_one(query, *params)
+    return {
+        "consumption_kwh": float(row["consumption_kwh"] or 0),
+        "cost_rp": float(row["cost_rp"] or 0),
+    }
+
+
+async def compare_electricity_periods(
+    device: str | None = None,
+    tenant: str | None = None,
+    period1: str | None = None,
+    period2: str | None = None,
+) -> dict:
+    """
+    Compare electricity costs between two time periods.
+
+    Args:
+        device: Device name (fuzzy match)
+        tenant: Tenant name (fuzzy match)
+        period1: First period (e.g., "2025-11", "7d")
+        period2: Second period (e.g., "2025-12", "7d")
+
+    Returns:
+        Dictionary with period comparison and change metrics
+    """
+    # Validate at least one of device or tenant
+    if not device and not tenant:
+        return {"error": "Either device or tenant is required"}
+
+    # Validate periods
+    if not period1 or not period2:
+        return {"error": "Both period1 and period2 are required"}
+
+    # Resolve device
+    device_id, device_info, error = await _resolve_device(device)
+    if error:
+        return {"error": error}
+
+    # Resolve tenant
+    tenant_id, tenant_info, error = await _resolve_tenant(tenant)
+    if error:
+        return {"error": error}
+
+    # If device provided, get tenant from device
+    if device_info and not tenant_info:
+        tenant_id = device_info["tenant_id"]
+
+    # Parse periods
+    result1 = parse_period(period1, None, None)
+    if result1[0] is None:
+        return {"error": f"Invalid period1: {result1[1]}"}
+    start1, end1 = result1
+
+    result2 = parse_period(period2, None, None)
+    if result2[0] is None:
+        return {"error": f"Invalid period2: {result2[1]}"}
+    start2, end2 = result2
+
+    # Get totals for each period
+    totals1 = await _get_period_totals(device_id, tenant_id, start1, end1)
+    totals2 = await _get_period_totals(device_id, tenant_id, start2, end2)
+
+    # Calculate changes
+    consumption_change = totals2["consumption_kwh"] - totals1["consumption_kwh"]
+    cost_change = totals2["cost_rp"] - totals1["cost_rp"]
+
+    consumption_pct = (
+        100 * consumption_change / totals1["consumption_kwh"]
+        if totals1["consumption_kwh"] > 0
+        else 0
+    )
+    cost_pct = (
+        100 * cost_change / totals1["cost_rp"]
+        if totals1["cost_rp"] > 0
+        else 0
+    )
+
+    # Build response
+    response = {
+        "comparison": {
+            "period1": {
+                "label": _format_period_label(period1),
+                "consumption_kwh": round(totals1["consumption_kwh"], 2),
+                "cost_rp": round(totals1["cost_rp"], 2),
+            },
+            "period2": {
+                "label": _format_period_label(period2),
+                "consumption_kwh": round(totals2["consumption_kwh"], 2),
+                "cost_rp": round(totals2["cost_rp"], 2),
+            },
+            "change": {
+                "consumption_kwh": round(consumption_change, 2),
+                "consumption_percent": round(consumption_pct, 1),
+                "cost_rp": round(cost_change, 2),
+                "cost_percent": round(cost_pct, 1),
+            },
+        },
+    }
+
+    # Add entity context
+    if device_info:
+        response["device"] = device_info.get("display_name")
+        response["device_id"] = device_id
+    if tenant_info:
+        response["tenant"] = tenant_info.get("tenant_name")
+
+    return response
+
+
+def format_compare_electricity_periods_response(result: dict) -> str:
+    """Format compare_electricity_periods response for human-readable output."""
+    if "error" in result:
+        return f"Error: {result['error']}"
+
+    comparison = result["comparison"]
+    p1 = comparison["period1"]
+    p2 = comparison["period2"]
+    change = comparison["change"]
+
+    # Header
+    entity = result.get("device") or result.get("tenant", "Unknown")
+    lines = [
+        f"## Period Comparison: {entity}",
+        "",
+    ]
+
+    # Period 1
+    lines.append(f"### {p1['label']}")
+    lines.append(f"- Consumption: {p1['consumption_kwh']:,.2f} kWh")
+    lines.append(f"- Cost: Rp {p1['cost_rp']:,.0f}")
+    lines.append("")
+
+    # Period 2
+    lines.append(f"### {p2['label']}")
+    lines.append(f"- Consumption: {p2['consumption_kwh']:,.2f} kWh")
+    lines.append(f"- Cost: Rp {p2['cost_rp']:,.0f}")
+    lines.append("")
+
+    # Change summary
+    lines.append("### Change")
+
+    # Consumption change
+    cons_arrow = "↑" if change["consumption_kwh"] >= 0 else "↓"
+    cons_sign = "+" if change["consumption_kwh"] >= 0 else ""
+    lines.append(
+        f"- Consumption: {cons_arrow} {cons_sign}{change['consumption_kwh']:,.2f} kWh "
+        f"({cons_sign}{change['consumption_percent']:.1f}%)"
+    )
+
+    # Cost change
+    cost_arrow = "↑" if change["cost_rp"] >= 0 else "↓"
+    cost_sign = "+" if change["cost_rp"] >= 0 else ""
+    lines.append(
+        f"- Cost: {cost_arrow} {cost_sign}Rp {change['cost_rp']:,.0f} "
+        f"({cost_sign}{change['cost_percent']:.1f}%)"
+    )
+
+    return "\n".join(lines)

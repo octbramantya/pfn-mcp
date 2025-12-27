@@ -523,6 +523,36 @@ async def list_tools() -> list[Tool]:
                 "required": ["tenant"],
             },
         ),
+        Tool(
+            name="compare_electricity_periods",
+            description=(
+                "Compare electricity costs between two time periods. "
+                "Shows consumption and cost for each period with change metrics. "
+                "Use for month-over-month or custom period comparisons."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "device": {
+                        "type": "string",
+                        "description": "Device name (fuzzy match)",
+                    },
+                    "tenant": {
+                        "type": "string",
+                        "description": "Tenant name (fuzzy match)",
+                    },
+                    "period1": {
+                        "type": "string",
+                        "description": "First period (e.g., '2025-11', '30d')",
+                    },
+                    "period2": {
+                        "type": "string",
+                        "description": "Second period (e.g., '2025-12', '30d')",
+                    },
+                },
+                "required": ["period1", "period2"],
+            },
+        ),
     ]
 
 
@@ -789,6 +819,22 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text=response)]
         except Exception as e:
             logger.error(f"get_electricity_cost_ranking failed: {e}")
+            return [TextContent(type="text", text=f"Error: {e}")]
+
+    elif name == "compare_electricity_periods":
+        try:
+            result = await electricity_cost_tool.compare_electricity_periods(
+                device=arguments.get("device"),
+                tenant=arguments.get("tenant"),
+                period1=arguments.get("period1"),
+                period2=arguments.get("period2"),
+            )
+            response = electricity_cost_tool.format_compare_electricity_periods_response(
+                result
+            )
+            return [TextContent(type="text", text=response)]
+        except Exception as e:
+            logger.error(f"compare_electricity_periods failed: {e}")
             return [TextContent(type="text", text=f"Error: {e}")]
 
     else:
