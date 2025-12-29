@@ -49,7 +49,8 @@ src/pfn_mcp/
     ├── quantities.py        # list_quantities with QUANTITY_ALIASES for semantic search
     ├── device_quantities.py # list_device_quantities, compare_device_quantities
     ├── discovery.py         # Data exploration tools (data range, freshness, info)
-    └── telemetry.py         # Phase 2 time-series tools (resolve_device, etc.)
+    ├── telemetry.py         # Phase 2 time-series tools (resolve_device, etc.)
+    └── electricity_cost.py  # Electricity cost tools (daily aggregates, breakdowns)
 ```
 
 **Key patterns:**
@@ -73,13 +74,24 @@ src/pfn_mcp/
 | `check_data_freshness` | Identify offline/stale/online meters |
 | `get_tenant_summary` | Tenant overview with device counts and models |
 
-## Available Tools (Phase 2)
+## Available Tools (Phase 2 - Telemetry)
 
 | Tool | Description |
 |------|-------------|
 | `resolve_device` | Confirm device selection before telemetry queries (exact/partial/fuzzy match confidence) |
 | `get_device_telemetry` | Fetch time-series data with adaptive bucketing (15min→1week based on range) |
 | `get_quantity_stats` | Pre-flight validation: data availability, completeness %, value ranges |
+
+## Available Tools (Phase 2 - Electricity Cost)
+
+| Tool | Description |
+|------|-------------|
+| `get_electricity_cost` | Query cost/consumption for device or tenant with optional breakdown |
+| `get_electricity_cost_breakdown` | Detailed breakdown by shift (SHIFT1/2/3), rate (WBP/LWBP), or source (PLN/Solar) |
+| `get_electricity_cost_ranking` | Rank devices by cost or consumption within a tenant |
+| `compare_electricity_periods` | Compare costs between two periods (month-over-month, custom ranges) |
+
+Period formats supported: `7d`, `30d`, `1M`, `2025-12`, `2025-12-01 to 2025-12-15`
 
 ## Database Context
 
@@ -89,6 +101,10 @@ src/pfn_mcp/
   - Unique key for admins: `slave_id@ip_address` combination
 - **Quantities**: WAGE metrics (77 in use) - query `quantities` table, filter by `telemetry_15min_agg`
 - **Telemetry**: Raw data in `telemetry_data` (14 days), aggregates in `telemetry_15min_agg` (2 years)
+- **Cost Data**: `daily_energy_cost_summary` table with pre-calculated costs by shift and rate
+  - Columns: daily_bucket, device_id, tenant_id, shift_period, rate_code, total_consumption, total_cost
+  - Rate codes: WBP (peak), LWBP1/LWBP2 (off-peak), PV (solar)
+  - Refreshed daily by pgAgent
 
 Primary quantity IDs for energy: 124 (Active Energy Delivered), 185 (Active Power)
 
