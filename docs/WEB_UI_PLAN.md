@@ -1,12 +1,35 @@
 # Phase 4: Web-Based Chat UI - Implementation Plan
 
 **Created:** 2025-01-04
-**Status:** Planning
+**Updated:** 2025-01-04
+**Status:** Planning (Two Options Under Consideration)
 **Related:** [concept.md](./concept.md) - Phase 4: Production Readiness
 
 ---
 
 ## Summary
+
+Two implementation approaches are being considered:
+
+| Aspect | Option A: Custom Build | Option B: Open WebUI |
+|--------|------------------------|----------------------|
+| Frontend | React/Next.js (build) | Open WebUI (ready-made) |
+| LLM Proxy | Direct Anthropic API | LiteLLM (budget enforcement) |
+| Tools | Embedded in backend | MCP via SSE |
+| Services | 2 (FastAPI + React) | 3 (Open WebUI + LiteLLM + MCP) |
+| Code to write | High | Low |
+| Ops complexity | Lower | Higher |
+| Time to MVP | Longer | Shorter |
+
+**Common requirements:**
+- **Tenant Model:** 1 Group = 1 Tenant
+- **Budgets:** Per-tenant monthly limits
+- **History:** Persist conversations
+- **Auth:** Use existing `auth_users` and `auth_user_tenants` tables
+
+---
+
+# Option A: Custom Build
 
 Build a custom web-based chat UI for the PFN MCP server with:
 - **Frontend:** React/Next.js
@@ -316,34 +339,196 @@ frontend/
 
 ---
 
-## Alternative Approaches Considered
+---
 
-### Fork LibreChat
-- **Pros:** Active community, multi-provider support, plugin system
-- **Cons:** Node.js backend requires adapter for Python tools
-- **Decision:** Rejected - too much adapter complexity
+# Option B: Open WebUI + LiteLLM + MCP
 
-### Fork Open WebUI
-- **Pros:** Python backend matches stack
-- **Cons:** Originally for Ollama, needs significant Claude adaptation
-- **Decision:** Rejected - prefer purpose-built solution
+Use existing open-source tools instead of custom build:
+- **Frontend:** Open WebUI (ready-made chat interface)
+- **LLM Proxy:** LiteLLM (Claude API + usage tracking + budgets)
+- **Tools:** Your existing PFN MCP server (connect via SSE)
+- **Tenant Model:** 1 Open WebUI Group = 1 Tenant
 
-### Custom Build (Selected)
-- **Pros:** Exactly what we need, single stack, full control
-- **Cons:** More initial work
-- **Decision:** Selected - best fit for requirements
+## Option B Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Open WebUI                                    │
+│  - Chat interface (ready-made)                                  │
+│  - User/Group management (1 Group = 1 Tenant)                   │
+│  - Conversation history (built-in)                              │
+│  - MCP connection to your tools                                 │
+└─────────────────────┬───────────────────────────────────────────┘
+                      │ HTTP (forwards X-OpenWebUI-User-Id)
+                      ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    LiteLLM Proxy                                 │
+│  - Routes to Anthropic API (Claude)                             │
+│  - Per-tenant budget enforcement (Team = Tenant)                │
+│  - Cost tracking in LiteLLM_SpendLogs                           │
+│  - Rejects requests when budget exceeded                        │
+└─────────────────────┬───────────────────────────────────────────┘
+                      │
+          ┌───────────┴───────────┐
+          ▼                       ▼
+┌──────────────────┐    ┌──────────────────────────────────────────┐
+│  Anthropic API   │    │   PFN MCP Server (your existing code)    │
+│  (Claude)        │    │   - Connects via SSE (/sse endpoint)     │
+│                  │    │   - Receives tenant context from tools   │
+│                  │    │   - Queries Valkyrie database            │
+└──────────────────┘    └──────────────────────────────────────────┘
+                                          │
+                                          ▼
+                        ┌──────────────────────────────────────────┐
+                        │   PostgreSQL (Valkyrie + TimescaleDB)    │
+                        └──────────────────────────────────────────┘
+```
+
+## Option B: Key Integration Points
+
+### 1. Open WebUI → MCP Server Connection
+
+Open WebUI has **native MCP support via SSE**. Your existing `sse_server.py` works directly:
+
+**In Open WebUI Admin Settings → External Tools:**
+```
+Type: MCP (Streamable HTTP)
+URL: http://your-mcp-server:8000/sse
+```
+
+### 2. LiteLLM Budget Enforcement
+
+**litellm-config.yaml:**
+```yaml
+model_list:
+  - model_name: claude-sonnet
+    litellm_params:
+      model: claude-sonnet-4-20250514
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+general_settings:
+  user_header_mappings:
+    - header_name: X-OpenWebUI-User-Id
+      litellm_user_role: internal_user
+```
+
+**Per-team (tenant) budgets via API:**
+```bash
+curl -X POST http://litellm:4000/team/new \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  -d '{
+    "team_alias": "tenant_prs",
+    "max_budget": 100,
+    "budget_duration": "30d"
+  }'
+```
+
+### 3. Group ↔ Tenant Mapping
+
+| Open WebUI | Your System | LiteLLM |
+|------------|-------------|---------|
+| Group "PRS" | tenant_id=1 | Team "tenant_prs" |
+| Group "IOP" | tenant_id=2 | Team "tenant_iop" |
+| User in Group | auth_user_tenants | Team member |
+
+## Option B: Deployment Configuration
+
+**docker-compose.yml:**
+```yaml
+version: '3.8'
+services:
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    ports:
+      - "3000:8080"
+    environment:
+      - OPENAI_API_BASE_URL=http://litellm:4000/v1
+      - OPENAI_API_KEY=dummy
+      - ENABLE_FORWARD_USER_INFO_HEADERS=True
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY}
+    volumes:
+      - open-webui-data:/app/backend/data
+    depends_on:
+      - litellm
+      - pfn-mcp
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    ports:
+      - "4000:4000"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - DATABASE_URL=postgresql://...
+    volumes:
+      - ./litellm-config.yaml:/app/config.yaml
+    command: ["--config", "/app/config.yaml"]
+
+  pfn-mcp:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+    command: ["python", "-m", "pfn_mcp.sse_server"]
+
+volumes:
+  open-webui-data:
+```
+
+## Option B: What You Get "For Free"
+
+| Feature | Provided By |
+|---------|-------------|
+| Chat UI | Open WebUI |
+| Conversation history | Open WebUI |
+| User authentication | Open WebUI (OAuth/LDAP) |
+| Tool execution | Open WebUI → MCP |
+| Cost tracking | LiteLLM |
+| Budget enforcement | LiteLLM |
+| Rate limiting | LiteLLM |
+
+## Option B: What You Need to Build
+
+1. **MCP Server Modifications (Minimal)**
+   - Add tenant resolution from user context
+   - Ensure all queries are tenant-scoped
+
+2. **Deployment Configuration**
+   - Docker-compose setup
+   - LiteLLM config
+   - Initial tenant/team setup script
+
+3. **Group Sync (TBD)**
+   - Script to sync from auth_user_tenants
+   - Or OAuth provider with group claims
+
+## Option B: Implementation Steps
+
+1. Deploy Open WebUI + LiteLLM, verify Claude works
+2. Connect MCP server, verify tools appear
+3. Create groups/teams for tenants
+4. Modify MCP tools for tenant context
+5. Configure budgets and test enforcement
+6. Set up authentication (OAuth TBD)
+
+## Option B: Open Questions
+
+1. How exactly does Open WebUI pass user context to MCP servers?
+2. Which OAuth provider to use?
+3. How to automate group sync from auth_user_tenants?
 
 ---
 
-## Decision Log
+# Decision Log
 
-| Decision | Choice | Rationale |
-|----------|--------|-----------|
-| Frontend | React/Next.js | Modern, good ecosystem, easier to find chat UI templates |
-| Streaming | Request/response | Simpler implementation, good enough for MVP |
-| History | Persist in DB | Users can revisit conversations |
-| Auth | Existing auth_users | Leverage existing user base, single sign-on potential |
-| Build vs Fork | Custom build | Better fit for specific requirements |
+| Decision | Choice | Status |
+|----------|--------|--------|
+| Frontend | Option A (React) or Option B (Open WebUI) | **Under evaluation** |
+| Streaming | Request/response | Decided |
+| History | Persist in DB | Decided |
+| Auth | Existing auth_users | Decided |
+| Tenant Model | 1 Group = 1 Tenant | Decided |
+| Budgets | Per-tenant monthly | Decided |
 
 ---
 
@@ -353,3 +538,7 @@ frontend/
 - [Anthropic Tool Use](https://docs.anthropic.com/en/docs/tool-use)
 - [FastAPI JWT Auth](https://fastapi.tiangolo.com/tutorial/security/)
 - [Next.js App Router](https://nextjs.org/docs/app)
+- [Open WebUI Documentation](https://docs.openwebui.com/)
+- [Open WebUI MCP Support](https://docs.openwebui.com/features/mcp/)
+- [LiteLLM Documentation](https://docs.litellm.ai/)
+- [LiteLLM Budget Management](https://docs.litellm.ai/docs/proxy/users)
