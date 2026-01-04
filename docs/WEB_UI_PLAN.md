@@ -514,8 +514,129 @@ volumes:
 ## Option B: Open Questions
 
 1. How exactly does Open WebUI pass user context to MCP servers?
-2. Which OAuth provider to use?
+2. ~~Which OAuth provider to use?~~ → **Resolved: Keycloak** (see below)
 3. How to automate group sync from auth_user_tenants?
+
+---
+
+## Authentication: Keycloak (Selected)
+
+### Why Keycloak?
+
+- **Self-hosted**: Full control, no vendor lock-in
+- **Any email provider**: Users can register with any corporate email
+- **Email verification**: Built-in confirmation flow
+- **Conditional MFA**: Email OTP only when needed (new device, etc.)
+- **Grafana SSO**: Native integration, single login for Web UI + Grafana
+- **Group-based tenants**: Keycloak groups map to tenants
+
+### Registration Flow
+
+```
+User clicks Register → Keycloak form → Email verification sent
+→ User clicks link → Account verified → Can login
+```
+
+**Features:**
+- Self-registration with email verification
+- Optional: Restrict to specific domains (e.g., `@navigant.id`)
+- SMTP required for sending verification emails
+
+### Login Protection (Conditional)
+
+```
+Trusted device? → Password only (no OTP)
+New device?     → Password + Email OTP → Device trusted for 30 days
+```
+
+**Options:**
+- Role-based: Users with `mfa_required` role get OTP
+- Attribute-based: `mfa_enabled=true` per user
+- New device detection (requires custom authenticator)
+
+### Grafana SSO Integration
+
+```
+Web UI link → Grafana → Keycloak session valid? → Auto-login
+                      → User lands on Home Dashboard
+```
+
+**Configuration:**
+- Grafana uses OIDC/OAuth2 with Keycloak
+- `auto_login = true` skips Grafana login page
+- Users can set their preferred Home Dashboard
+- Org admins can set default for all users
+
+### Keycloak Realm Structure
+
+```
+Realm: pfn
+├── Users (self-registered, email verified)
+├── Groups (= Tenants)
+│   ├── PRS (tenant_id=1)
+│   ├── IOP (tenant_id=2)
+│   └── ...
+└── Clients
+    ├── openwebui
+    ├── grafana
+    └── litellm (optional)
+```
+
+### Docker Compose Addition
+
+```yaml
+keycloak:
+  image: quay.io/keycloak/keycloak:26.0
+  environment:
+    - KEYCLOAK_ADMIN=admin
+    - KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD}
+    - KC_DB=postgres
+    - KC_DB_URL=jdbc:postgresql://keycloak-db:5432/keycloak
+    - KC_HOSTNAME=auth.yourdomain.com
+  command: start --optimized
+  ports:
+    - "8080:8080"
+
+keycloak-db:
+  image: postgres:16
+  environment:
+    - POSTGRES_DB=keycloak
+    - POSTGRES_USER=keycloak
+    - POSTGRES_PASSWORD=${KEYCLOAK_DB_PASSWORD}
+  volumes:
+    - keycloak-db-data:/var/lib/postgresql/data
+```
+
+### Open WebUI + Keycloak
+
+```env
+ENABLE_OAUTH_SIGNUP=true
+OAUTH_PROVIDER_NAME=Keycloak
+OPENID_PROVIDER_URL=https://auth.yourdomain.com/realms/pfn/.well-known/openid-configuration
+OAUTH_CLIENT_ID=openwebui
+OAUTH_CLIENT_SECRET=${OPENWEBUI_OAUTH_SECRET}
+```
+
+### Grafana + Keycloak (grafana.ini)
+
+```ini
+[auth.generic_oauth]
+enabled = true
+name = Keycloak
+client_id = grafana
+client_secret = ${GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET}
+auth_url = https://auth.yourdomain.com/realms/pfn/protocol/openid-connect/auth
+token_url = https://auth.yourdomain.com/realms/pfn/protocol/openid-connect/token
+api_url = https://auth.yourdomain.com/realms/pfn/protocol/openid-connect/userinfo
+scopes = openid profile email
+auto_login = true
+```
+
+### References
+
+- [Keycloak Documentation](https://www.keycloak.org/documentation)
+- [Grafana Keycloak OAuth](https://grafana.com/docs/grafana/latest/setup-grafana/configure-access/configure-authentication/keycloak/)
+- [keycloak-2fa-email-authenticator](https://github.com/mesutpiskin/keycloak-2fa-email-authenticator)
 
 ---
 
