@@ -176,23 +176,28 @@ def format_list_tag_values_response(result: dict) -> str:
 GroupByType = Literal["tag", "asset"]
 
 
-async def _resolve_tag_devices(tag_key: str, tag_value: str) -> tuple[list[int], str | None]:
-    """Get device IDs for a tag key-value pair."""
+async def _resolve_tag_devices(
+    tag_key: str, tag_value: str
+) -> tuple[list[dict], str | None]:
+    """Get device IDs and names for a tag key-value pair."""
     query = """
-        SELECT DISTINCT device_id
-        FROM device_tags
-        WHERE tag_key ILIKE $1
-          AND tag_value ILIKE $2
-          AND is_active = true
+        SELECT DISTINCT dt.device_id, d.display_name
+        FROM device_tags dt
+        JOIN devices d ON dt.device_id = d.id
+        WHERE dt.tag_key ILIKE $1
+          AND dt.tag_value ILIKE $2
+          AND dt.is_active = true
+          AND d.is_active = true
+        ORDER BY d.display_name
     """
     rows = await db.fetch_all(query, tag_key, tag_value)
     if not rows:
         return [], f"No devices found with tag {tag_key}={tag_value}"
-    return [row["device_id"] for row in rows], None
+    return [{"id": row["device_id"], "name": row["display_name"]} for row in rows], None
 
 
-async def _resolve_asset_devices(asset_id: int) -> tuple[list[int], str | None]:
-    """Get device IDs for an asset hierarchy using database function."""
+async def _resolve_asset_devices(asset_id: int) -> tuple[list[dict], str | None]:
+    """Get device IDs and names for an asset hierarchy using database function."""
     # First check if the asset exists
     asset = await db.fetch_one(
         "SELECT id, asset_name FROM assets WHERE id = $1",
@@ -203,7 +208,7 @@ async def _resolve_asset_devices(asset_id: int) -> tuple[list[int], str | None]:
 
     # Get all downstream devices using the database function
     query = """
-        SELECT d.device_id
+        SELECT DISTINCT d.id as device_id, d.display_name
         FROM get_all_downstream_assets($1, 'ELECTRICITY') da
         JOIN devices d ON d.asset_id = da.asset_id
         WHERE d.is_active = true
@@ -212,22 +217,29 @@ async def _resolve_asset_devices(asset_id: int) -> tuple[list[int], str | None]:
 
     # Also include devices directly attached to this asset
     direct_query = """
-        SELECT id as device_id
+        SELECT id as device_id, display_name
         FROM devices
         WHERE asset_id = $1 AND is_active = true
     """
     direct_rows = await db.fetch_all(direct_query, asset_id)
 
-    # Combine and deduplicate
-    device_ids = list(set(
-        [row["device_id"] for row in rows] +
-        [row["device_id"] for row in direct_rows]
-    ))
+    # Combine and deduplicate by device_id
+    device_map = {}
+    for row in rows:
+        device_map[row["device_id"]] = row["display_name"]
+    for row in direct_rows:
+        device_map[row["device_id"]] = row["display_name"]
 
-    if not device_ids:
+    if not device_map:
         return [], f"No devices found under asset: {asset['asset_name']}"
 
-    return device_ids, None
+    # Sort by name for consistent ordering
+    devices = [
+        {"id": did, "name": name}
+        for did, name in sorted(device_map.items(), key=lambda x: x[1])
+    ]
+
+    return devices, None
 
 
 async def get_group_telemetry(
@@ -259,11 +271,11 @@ async def get_group_telemetry(
     """
     # Validate grouping parameters
     if tag_key and tag_value:
-        device_ids, error = await _resolve_tag_devices(tag_key, tag_value)
+        devices, error = await _resolve_tag_devices(tag_key, tag_value)
         group_type = "tag"
         group_label = f"{tag_key}={tag_value}"
     elif asset_id:
-        device_ids, error = await _resolve_asset_devices(asset_id)
+        devices, error = await _resolve_asset_devices(asset_id)
         group_type = "asset"
         # Get asset name for label
         asset = await db.fetch_one(
@@ -276,6 +288,19 @@ async def get_group_telemetry(
 
     if error:
         return {"error": error}
+
+    # Extract device IDs and names
+    device_ids = [d["id"] for d in devices]
+    device_names = [d["name"] for d in devices]
+
+    # Determine result type based on device count
+    device_count = len(devices)
+    if device_count == 1:
+        result_type = "single_meter"
+    elif device_count <= 3:
+        result_type = "combined_meters"
+    else:
+        result_type = "aggregated_group"
 
     # Parse period
     result = parse_period(period, start_date, end_date)
@@ -325,8 +350,10 @@ async def get_group_telemetry(
         "group": {
             "type": group_type,
             "label": group_label,
-            "device_count": len(device_ids),
+            "result_type": result_type,
+            "device_count": device_count,
             "devices_with_data": devices_with_data,
+            "devices": device_names,
         },
         "summary": {
             "total_consumption_kwh": round(total_consumption, 2),
@@ -456,19 +483,37 @@ def format_group_telemetry_response(result: dict) -> str:
 
     group = result["group"]
     summary = result["summary"]
+    result_type = group.get("result_type", "aggregated_group")
+    devices = group.get("devices", [])
+
+    # Format header based on result type
+    if result_type == "single_meter":
+        header = f"## {group['label']} (single meter: {devices[0]})"
+    elif result_type == "combined_meters":
+        device_list = " + ".join(devices)
+        header = f"## {group['label']} (combined: {device_list})"
+    else:
+        header = f"## {group['label']} ({group['device_count']} devices)"
 
     lines = [
-        f"## Group Telemetry: {group['label']}",
-        f"**Group type**: {group['type']}",
-        f"**Devices**: {group['devices_with_data']} of {group['device_count']} with data",
+        header,
         f"**Period**: {summary['period']}",
         f"**Days with data**: {summary['days_with_data']}",
+    ]
+
+    # Only show device count details for aggregated groups
+    if result_type == "aggregated_group":
+        with_data = group['devices_with_data']
+        total = group['device_count']
+        lines.append(f"**Devices reporting**: {with_data} of {total}")
+
+    lines.extend([
         "",
         "### Summary",
         f"- **Consumption**: {summary['total_consumption_kwh']:,.2f} kWh",
         f"- **Cost**: Rp {summary['total_cost_rp']:,.0f}",
         f"- **Avg Rate**: Rp {summary['avg_rate_per_kwh']:,.2f}/kWh",
-    ]
+    ])
 
     # Add breakdown if present
     breakdown = result.get("breakdown", [])
@@ -540,10 +585,10 @@ async def compare_groups(
 
         # Resolve devices
         if tag_key and tag_value:
-            device_ids, error = await _resolve_tag_devices(tag_key, tag_value)
+            devices, error = await _resolve_tag_devices(tag_key, tag_value)
             group_label = f"{tag_key}={tag_value}"
         elif asset_id:
-            device_ids, error = await _resolve_asset_devices(asset_id)
+            devices, error = await _resolve_asset_devices(asset_id)
             asset = await db.fetch_one(
                 "SELECT asset_name FROM assets WHERE id = $1",
                 asset_id,
@@ -552,7 +597,7 @@ async def compare_groups(
         else:
             continue  # Skip invalid group definitions
 
-        if error or not device_ids:
+        if error or not devices:
             group_results.append({
                 "label": group_label,
                 "device_count": 0,
@@ -562,6 +607,9 @@ async def compare_groups(
                 "error": error,
             })
             continue
+
+        # Extract device IDs from resolved devices
+        device_ids = [d["id"] for d in devices]
 
         # Query consumption for this group
         device_placeholders = ", ".join(f"${i+4}" for i in range(len(device_ids)))
@@ -590,7 +638,7 @@ async def compare_groups(
 
         group_results.append({
             "label": group_label,
-            "device_count": len(device_ids),
+            "device_count": len(devices),
             "consumption_kwh": round(consumption, 2),
             "cost_rp": round(cost, 2),
         })
