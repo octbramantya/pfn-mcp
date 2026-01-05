@@ -513,9 +513,374 @@ volumes:
 
 ## Option B: Open Questions
 
-1. How exactly does Open WebUI pass user context to MCP servers?
+1. ~~How exactly does Open WebUI pass user context to MCP servers?~~ → **Researched** (see below)
 2. ~~Which OAuth provider to use?~~ → **Resolved: Keycloak** (see below)
-3. How to automate group sync from auth_user_tenants?
+3. ~~How to automate group sync from auth_user_tenants?~~ → **Designed** (see below)
+
+---
+
+## Research: MCP User Context Passing
+
+**Status:** Researched (2026-01-05)
+**Conclusion:** Current MCPO integration does NOT automatically pass user context to MCP servers. Native MCP support with per-user auth is in development but not yet released.
+
+### How Open WebUI Handles User Context
+
+**1. Native Python Tools (Plugins)**
+
+Open WebUI has a dependency injection system for plugin functions. Reserved arguments prefixed with `__` are automatically injected:
+
+| Argument | Description |
+|----------|-------------|
+| `__user__` | Dict with user info + `UserValves` in `__user__["valves"]` |
+| `__oauth_token__` | Dict with `access_token`, `id_token` (auto-refreshed) |
+| `__request__` | FastAPI request object (headers, etc.) |
+| `__event_emitter__` | Emit events to chat UI |
+| `__metadata__` | Chat metadata dict |
+
+**Example:**
+```python
+class Tools:
+    def my_tool(self, query: str, __user__: dict = None) -> str:
+        user_id = __user__["id"]
+        tenant = __user__["valves"].tenant_id  # via UserValves
+        # ... execute with user context
+```
+
+**2. MCP via MCPO Proxy (Current Integration)**
+
+MCPO converts MCP servers to OpenAPI endpoints. **Critical limitation:**
+
+> "A single MCP client instance is shared across all OpenWebUI users, resulting in a shared authentication context."
+> — [GitHub Discussion #14121](https://github.com/open-webui/open-webui/discussions/14121)
+
+**What this means for us:**
+- ❌ No automatic user/tenant context passed to MCP tools
+- ❌ Custom headers are global, not per-user ([Issue #19313](https://github.com/open-webui/open-webui/issues/19313))
+- ❌ All users share the same MCP session
+
+**3. Native MCP Support (In Development)**
+
+Draft PR [#16651](https://github.com/open-webui/open-webui/discussions/16238) implements:
+- Full MCP 2025-06-18 spec with HTTP Stream transport
+- Per-user authentication with encrypted token storage
+- OAuth 2.1 with PKCE, Dynamic Client Registration
+- User isolation
+
+**Status:** Community fork, not merged to main. Timeline unknown.
+
+### Workarounds Discussed in Community
+
+| Approach | Description | Source |
+|----------|-------------|--------|
+| JWT Passthrough | Extract Authorization header in MCPO, pass to MCP server | [Discussion #13734](https://github.com/open-webui/open-webui/discussions/13734) |
+| MCP Metadata | Include user context in MCP CallToolRequest metadata | [Discussion #14121](https://github.com/open-webui/open-webui/discussions/14121) |
+| Custom Headers | Modify MCPO to inject user headers from Open WebUI | Community proposals |
+| OAuth Token Lookup | Use `__oauth_token__` to identify user, lookup tenant | Requires native tools |
+
+### Implications for PFN MCP
+
+**Option B-1: Use Native Python Tools (Recommended Short-term)**
+
+Instead of MCP protocol, write tools as Open WebUI Python plugins:
+- Full access to `__user__` and `__oauth_token__`
+- Map Keycloak groups to tenant_id
+- Call existing PFN MCP tool functions internally
+
+**Option B-2: Modify MCPO for User Context**
+
+Fork MCPO to:
+- Extract `X-OpenWebUI-User-Id` header
+- Pass user ID to MCP server via custom header or tool metadata
+- MCP server resolves user → tenant mapping
+
+**Option B-3: Wait for Native MCP Support**
+
+- Monitor PR #16651 progress
+- Native support would provide per-user MCP authentication
+- Unknown timeline
+
+### Recommendation
+
+For Option B, start with **Python plugin wrapper** approach:
+1. Create Open WebUI Python tools that wrap our existing functions
+2. Use `__user__` to get Keycloak user ID
+3. Lookup tenant from Keycloak group claims (via `__oauth_token__`)
+4. Call existing PFN tool functions with tenant context
+5. Migrate to native MCP when available
+
+This avoids MCPO limitations while reusing existing code.
+
+### References
+
+- [Open WebUI MCP Docs](https://docs.openwebui.com/features/mcp/)
+- [Tools Development Guide](https://docs.openwebui.com/features/plugin/tools/development/)
+- [Per-user MCP Auth Discussion](https://github.com/open-webui/open-webui/discussions/14121)
+- [User-specific Headers Request](https://github.com/open-webui/open-webui/issues/19313)
+- [Native MCP Discussion](https://github.com/open-webui/open-webui/discussions/16238)
+- [Getting User Info in MCPO](https://github.com/open-webui/open-webui/discussions/13734)
+
+---
+
+## Design: Group Sync from auth_user_tenants
+
+**Status:** Designed (2026-01-05)
+**Goal:** Sync tenant memberships from `auth_user_tenants` → Keycloak → Open WebUI → LiteLLM
+
+### Data Model
+
+**Source of Truth:** `auth_user_tenants` table in Valkyrie database
+
+```sql
+-- Existing schema
+CREATE TABLE auth_user_tenants (
+    id integer PRIMARY KEY,
+    user_id integer NOT NULL REFERENCES auth_users(id),
+    tenant_id integer NOT NULL REFERENCES tenants(id),
+    product_id integer NOT NULL,  -- e.g., 1=Grafana, 2=MCP Chat
+    role varchar(50) NOT NULL,    -- e.g., 'viewer', 'admin'
+    permissions text[],
+    is_active boolean DEFAULT true,
+    ...
+);
+
+CREATE TABLE tenants (
+    id integer PRIMARY KEY,
+    tenant_name varchar(255),     -- e.g., "PT Rekayasa Sukses"
+    tenant_code varchar(50),      -- e.g., "PRS" (used as group name)
+    ...
+);
+```
+
+**Mapping:**
+
+| Valkyrie | Keycloak | Open WebUI | LiteLLM |
+|----------|----------|------------|---------|
+| `tenants.tenant_code` | Group name | Group name | Team alias |
+| `auth_users.email` | User email | User email | User email |
+| `auth_user_tenants` | Group membership | (auto-synced) | (auto-synced) |
+
+### Sync Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         Valkyrie Database                                │
+│  auth_user_tenants  ←→  tenants  ←→  auth_users                         │
+└─────────────────────────────┬───────────────────────────────────────────┘
+                              │
+                              │ (1) Sync Script (on-demand or scheduled)
+                              ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           Keycloak                                       │
+│  Groups: PRS, IOP, NAV, ...  ←→  Users (by email)                       │
+│  Group Membership mapper → 'groups' claim in token                      │
+└─────────────────────────────┬───────────────────────────────────────────┘
+                              │
+                              │ (2) OAuth Login (automatic)
+                              ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         Open WebUI                                       │
+│  ENABLE_OAUTH_GROUP_MANAGEMENT=true                                     │
+│  OAUTH_GROUP_CLAIM=groups                                               │
+│  Groups auto-synced from token on each login                            │
+└─────────────────────────────┬───────────────────────────────────────────┘
+                              │
+                              │ (3) SSO Flow (automatic, if using LiteLLM SSO)
+                              ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          LiteLLM                                         │
+│  Teams auto-created from SSO groups                                     │
+│  default_team_params: max_budget, budget_duration                       │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Option 1: Script-Based Sync (Recommended)
+
+**Approach:** Python script that syncs Valkyrie → Keycloak using Keycloak Admin REST API
+
+**Script: `scripts/sync_keycloak_groups.py`**
+
+```python
+#!/usr/bin/env python3
+"""Sync tenant memberships from Valkyrie to Keycloak groups."""
+
+import asyncio
+import httpx
+from keycloak import KeycloakAdmin
+
+async def sync_groups():
+    # 1. Connect to Keycloak
+    keycloak = KeycloakAdmin(
+        server_url="https://auth.yourdomain.com",
+        realm_name="pfn",
+        client_id="admin-cli",
+        client_secret_key=os.environ["KEYCLOAK_ADMIN_SECRET"]
+    )
+
+    # 2. Fetch tenant memberships from Valkyrie
+    async with asyncpg.create_pool(DATABASE_URL) as pool:
+        memberships = await pool.fetch("""
+            SELECT
+                u.email,
+                t.tenant_code as group_name,
+                ut.role
+            FROM auth_user_tenants ut
+            JOIN auth_users u ON ut.user_id = u.id
+            JOIN tenants t ON ut.tenant_id = t.id
+            WHERE ut.is_active = true
+              AND ut.product_id = 2  -- MCP Chat product
+        """)
+
+    # 3. Ensure groups exist in Keycloak
+    existing_groups = {g['name']: g['id'] for g in keycloak.get_groups()}
+    for tenant_code in set(m['group_name'] for m in memberships):
+        if tenant_code not in existing_groups:
+            keycloak.create_group({"name": tenant_code})
+
+    # 4. Sync group memberships
+    for membership in memberships:
+        user = keycloak.get_users({"email": membership['email']})
+        if user:
+            group_id = existing_groups[membership['group_name']]
+            keycloak.group_user_add(user[0]['id'], group_id)
+
+if __name__ == "__main__":
+    asyncio.run(sync_groups())
+```
+
+**Execution:**
+- Manual: `python scripts/sync_keycloak_groups.py`
+- Scheduled: cron job or systemd timer (every 5 minutes)
+- Triggered: After admin modifies `auth_user_tenants`
+
+### Option 2: Database Trigger + Webhook
+
+**Approach:** PostgreSQL trigger notifies sync service on changes
+
+```sql
+-- Trigger on auth_user_tenants changes
+CREATE OR REPLACE FUNCTION notify_membership_change()
+RETURNS TRIGGER AS $$
+BEGIN
+    PERFORM pg_notify('membership_change', json_build_object(
+        'user_id', COALESCE(NEW.user_id, OLD.user_id),
+        'tenant_id', COALESCE(NEW.tenant_id, OLD.tenant_id),
+        'action', TG_OP
+    )::text);
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_membership_change
+AFTER INSERT OR UPDATE OR DELETE ON auth_user_tenants
+FOR EACH ROW EXECUTE FUNCTION notify_membership_change();
+```
+
+**Sync service:** Listens to `pg_notify` and updates Keycloak in real-time.
+
+### Option 3: Keycloak User Storage SPI
+
+**Approach:** Custom Keycloak provider that reads from Valkyrie database
+
+**Pros:** Real-time, no sync lag
+**Cons:** Complex to implement and maintain, couples Keycloak to Valkyrie schema
+
+**Not recommended** unless we have specific real-time requirements.
+
+### Open WebUI Configuration
+
+```env
+# OAuth Group Sync (auto-sync from Keycloak token)
+ENABLE_OAUTH_GROUP_MANAGEMENT=true
+OAUTH_GROUP_CLAIM=groups
+ENABLE_OAUTH_GROUP_CREATION=true  # Auto-create groups not in Open WebUI
+```
+
+**Behavior:**
+- On each login, user's groups are synced from token
+- User added to groups in token, removed from others
+- Groups created automatically if `ENABLE_OAUTH_GROUP_CREATION=true`
+
+### LiteLLM Configuration
+
+**Option A: Direct Team Management (if not using SSO)**
+
+```bash
+# Create team via API
+curl -X POST http://litellm:4000/team/new \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  -d '{
+    "team_alias": "PRS",
+    "max_budget": 100,
+    "budget_duration": "30d"
+  }'
+
+# Add user to team
+curl -X POST http://litellm:4000/team/member_add \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  -d '{
+    "team_id": "...",
+    "member": {"user_email": "user@example.com"}
+  }'
+```
+
+**Option B: SSO Auto-Sync (if using Keycloak SSO with LiteLLM)**
+
+```yaml
+# litellm-config.yaml
+litellm_settings:
+  default_team_params:
+    max_budget: 100
+    budget_duration: "30d"
+    models: ["claude-sonnet-4-20250514"]
+```
+
+Teams auto-created from SSO groups with default budget settings.
+
+### Keycloak Group Membership Mapper
+
+**Setup in Keycloak Admin Console:**
+
+1. **Create Client Scope:**
+   - Realm → Client Scopes → Create
+   - Name: `groups`
+   - Type: Default
+
+2. **Add Group Membership Mapper:**
+   - Client Scopes → `groups` → Mappers → Add mapper → By configuration
+   - Mapper type: `Group Membership`
+   - Name: `groups`
+   - Token Claim Name: `groups`
+   - Full group path: `OFF` (just group name, not `/PRS`)
+   - Add to ID token: `ON`
+   - Add to access token: `ON`
+
+3. **Attach to Client:**
+   - Clients → `openwebui` → Client Scopes → Add client scope → `groups` (Default)
+
+### Recommendation
+
+**Use Option 1 (Script-Based Sync):**
+
+1. Simple to implement and debug
+2. Can be run manually for initial setup
+3. Schedule for ongoing sync (every 5-15 minutes)
+4. Logging and error handling straightforward
+
+**Implementation order:**
+
+1. Create Keycloak groups manually for existing tenants
+2. Configure Group Membership mapper
+3. Test Open WebUI group sync on login
+4. Implement sync script for ongoing maintenance
+5. Optional: Add webhook trigger for real-time sync
+
+### References
+
+- [Open WebUI SSO Docs](https://docs.openwebui.com/features/auth/sso/)
+- [Keycloak Group Membership Mapper](https://infisical.com/docs/documentation/platform/sso/keycloak-oidc/group-membership-mapping)
+- [LiteLLM Microsoft SSO](https://docs.litellm.ai/docs/tutorials/msft_sso)
+- [python-keycloak library](https://python-keycloak.readthedocs.io/)
 
 ---
 
