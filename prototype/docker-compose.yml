@@ -1,0 +1,63 @@
+version: '3.8'
+
+# Prototype: Open WebUI + Keycloak for testing __user__ context injection
+# Task: pfn_mcp-6ar - Verify __user__ context in Open WebUI Python tools
+
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: proto-keycloak
+    environment:
+      - KC_BOOTSTRAP_ADMIN_USERNAME=admin
+      - KC_BOOTSTRAP_ADMIN_PASSWORD=admin
+      - KC_HTTP_ENABLED=true
+      - KC_HOSTNAME_STRICT=false
+    ports:
+      - "8080:8080"
+    command: start-dev
+    networks:
+      - proto-net
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/8080"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: proto-openwebui
+    environment:
+      # OAuth Configuration
+      - ENABLE_OAUTH_SIGNUP=true
+      - OAUTH_PROVIDER_NAME=Keycloak
+      - OPENID_PROVIDER_URL=http://keycloak:8080/realms/pfn/.well-known/openid-configuration
+      - OAUTH_CLIENT_ID=openwebui
+      - OAUTH_CLIENT_SECRET=${OAUTH_CLIENT_SECRET}
+      - OAUTH_SCOPES=openid email profile groups
+      # Group sync from OAuth
+      - ENABLE_OAUTH_GROUP_MANAGEMENT=true
+      - OAUTH_GROUP_CLAIM=groups
+      - ENABLE_OAUTH_GROUP_CREATION=true
+      # WebUI settings
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY}
+      - WEBUI_URL=http://localhost:3000
+      # Disable default login form for OAuth-only
+      - ENABLE_LOGIN_FORM=false
+      # Allow running without Ollama (we just need tools to work)
+      - OLLAMA_BASE_URL=
+    ports:
+      - "3000:8080"
+    volumes:
+      - open-webui-data:/app/backend/data
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    networks:
+      - proto-net
+
+volumes:
+  open-webui-data:
+
+networks:
+  proto-net:
+    driver: bridge
