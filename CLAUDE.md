@@ -50,7 +50,8 @@ src/pfn_mcp/
     ├── device_quantities.py # list_device_quantities, compare_device_quantities
     ├── discovery.py         # Data exploration tools (data range, freshness, info)
     ├── telemetry.py         # Phase 2 time-series tools (resolve_device, etc.)
-    └── electricity_cost.py  # Electricity cost tools (daily aggregates, breakdowns)
+    ├── electricity_cost.py  # Electricity cost tools (daily aggregates, breakdowns)
+    └── group_telemetry.py   # Group telemetry tools (by tag or asset hierarchy)
 ```
 
 **Key patterns:**
@@ -93,6 +94,19 @@ src/pfn_mcp/
 
 Period formats supported: `7d`, `30d`, `1M`, `2025-12`, `2025-12-01 to 2025-12-15`
 
+## Available Tools (Phase 2 - Group Telemetry)
+
+| Tool | Description |
+|------|-------------|
+| `list_tags` | List available device tags for grouping (by process, building, area, etc.) |
+| `list_tag_values` | List all values for a tag key with device counts |
+| `get_group_telemetry` | Aggregated consumption/cost for a group (by tag or asset hierarchy) |
+| `compare_groups` | Compare consumption across multiple groups side-by-side |
+
+Grouping options:
+- **Tag-based**: Use `tag_key` + `tag_value` (e.g., process=Waterjet, building=Factory A)
+- **Asset-based**: Use `asset_id` to get all downstream devices in hierarchy
+
 ## Database Context
 
 - **Tenants**: Multi-tenant system (tenants table with tenant_name, tenant_code)
@@ -105,6 +119,12 @@ Period formats supported: `7d`, `30d`, `1M`, `2025-12`, `2025-12-01 to 2025-12-1
   - Columns: daily_bucket, device_id, tenant_id, shift_period, rate_code, total_consumption, total_cost
   - Rate codes: WBP (peak), LWBP1/LWBP2 (off-peak), PV (solar)
   - Refreshed daily by pgAgent
+- **Device Tags**: `device_tags` table for flexible device grouping
+  - Columns: device_id, tag_key, tag_value, tag_category, is_active
+  - Example tags: process=Waterjet, building=Factory A
+  - Used by `get_group_telemetry` for aggregating consumption by group
+- **Assets**: `assets` table with hierarchical structure (parent_id, utility_path)
+  - Database functions: `get_all_downstream_assets()`, `get_downstream_devices_by_depth()`
 
 Primary quantity IDs for energy: 124 (Active Energy Delivered), 185 (Active Power)
 

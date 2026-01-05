@@ -13,6 +13,7 @@ from pfn_mcp.tools import device_quantities as device_quantities_tool
 from pfn_mcp.tools import devices as devices_tool
 from pfn_mcp.tools import discovery as discovery_tool
 from pfn_mcp.tools import electricity_cost as electricity_cost_tool
+from pfn_mcp.tools import group_telemetry as group_telemetry_tool
 from pfn_mcp.tools import quantities as quantities_tool
 from pfn_mcp.tools import telemetry as telemetry_tool
 from pfn_mcp.tools import tenants as tenants_tool
@@ -553,6 +554,133 @@ async def list_tools() -> list[Tool]:
                 "required": ["period1", "period2"],
             },
         ),
+        # Group telemetry tools
+        Tool(
+            name="list_tags",
+            description=(
+                "List available device tags for grouping. "
+                "Tags allow flexible grouping by process, building, area, etc. "
+                "Shows tag keys, values, and device counts by category."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "tag_key": {
+                        "type": "string",
+                        "description": "Filter by specific tag key (e.g., 'process', 'building')",
+                    },
+                    "tag_category": {
+                        "type": "string",
+                        "description": "Filter by tag category (e.g., 'location', 'production')",
+                    },
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="list_tag_values",
+            description=(
+                "List all values for a specific tag key with device counts. "
+                "Shows which devices belong to each tag value. "
+                "Use to explore available groupings before get_group_telemetry."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "tag_key": {
+                        "type": "string",
+                        "description": "Tag key to list values for (e.g., 'process', 'building')",
+                    },
+                },
+                "required": ["tag_key"],
+            },
+        ),
+        Tool(
+            name="get_group_telemetry",
+            description=(
+                "Get aggregated electricity consumption and cost for a group of devices. "
+                "Group by tag (tag_key + tag_value) or asset hierarchy (asset_id). "
+                "Supports breakdown by device or daily. "
+                "Period formats: '7d', '1M', '2025-12', or 'YYYY-MM-DD to YYYY-MM-DD'."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "tag_key": {
+                        "type": "string",
+                        "description": "Tag key for grouping (e.g., 'process', 'building')",
+                    },
+                    "tag_value": {
+                        "type": "string",
+                        "description": "Tag value to match (e.g., 'Waterjet', 'Factory A')",
+                    },
+                    "asset_id": {
+                        "type": "integer",
+                        "description": "Asset ID for hierarchy-based grouping",
+                    },
+                    "period": {
+                        "type": "string",
+                        "description": "Time period: '7d', '1M', '2025-12' (default: 7d)",
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "description": "Explicit start date (YYYY-MM-DD)",
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "description": "Explicit end date (YYYY-MM-DD)",
+                    },
+                    "breakdown": {
+                        "type": "string",
+                        "description": "Breakdown type: 'none', 'device', 'daily' (default: none)",
+                        "enum": ["none", "device", "daily"],
+                        "default": "none",
+                    },
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="compare_groups",
+            description=(
+                "Compare electricity consumption across multiple groups. "
+                "Each group can be defined by tag or asset. "
+                "Returns consumption, cost, and percentage for each group."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "groups": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "tag_key": {"type": "string"},
+                                "tag_value": {"type": "string"},
+                                "asset_id": {"type": "integer"},
+                            },
+                        },
+                        "description": (
+                            "List of groups to compare. Each group needs either "
+                            "(tag_key + tag_value) or asset_id"
+                        ),
+                    },
+                    "period": {
+                        "type": "string",
+                        "description": "Time period: '7d', '1M', '2025-12' (default: 7d)",
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "description": "Explicit start date (YYYY-MM-DD)",
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "description": "Explicit end date (YYYY-MM-DD)",
+                    },
+                },
+                "required": ["groups"],
+            },
+        ),
     ]
 
 
@@ -835,6 +963,64 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text=response)]
         except Exception as e:
             logger.error(f"compare_electricity_periods failed: {e}")
+            return [TextContent(type="text", text=f"Error: {e}")]
+
+    elif name == "list_tags":
+        try:
+            result = await group_telemetry_tool.list_tags(
+                tag_key=arguments.get("tag_key"),
+                tag_category=arguments.get("tag_category"),
+            )
+            response = group_telemetry_tool.format_list_tags_response(result)
+            return [TextContent(type="text", text=response)]
+        except Exception as e:
+            logger.error(f"list_tags failed: {e}")
+            return [TextContent(type="text", text=f"Error: {e}")]
+
+    elif name == "list_tag_values":
+        tag_key = arguments.get("tag_key")
+        if not tag_key:
+            return [TextContent(type="text", text="Error: tag_key is required")]
+        try:
+            result = await group_telemetry_tool.list_tag_values(tag_key=tag_key)
+            response = group_telemetry_tool.format_list_tag_values_response(result)
+            return [TextContent(type="text", text=response)]
+        except Exception as e:
+            logger.error(f"list_tag_values failed: {e}")
+            return [TextContent(type="text", text=f"Error: {e}")]
+
+    elif name == "get_group_telemetry":
+        try:
+            result = await group_telemetry_tool.get_group_telemetry(
+                tag_key=arguments.get("tag_key"),
+                tag_value=arguments.get("tag_value"),
+                asset_id=arguments.get("asset_id"),
+                period=arguments.get("period"),
+                start_date=arguments.get("start_date"),
+                end_date=arguments.get("end_date"),
+                breakdown=arguments.get("breakdown", "none"),
+            )
+            response = group_telemetry_tool.format_group_telemetry_response(result)
+            return [TextContent(type="text", text=response)]
+        except Exception as e:
+            logger.error(f"get_group_telemetry failed: {e}")
+            return [TextContent(type="text", text=f"Error: {e}")]
+
+    elif name == "compare_groups":
+        groups = arguments.get("groups")
+        if not groups:
+            return [TextContent(type="text", text="Error: groups is required")]
+        try:
+            result = await group_telemetry_tool.compare_groups(
+                groups=groups,
+                period=arguments.get("period"),
+                start_date=arguments.get("start_date"),
+                end_date=arguments.get("end_date"),
+            )
+            response = group_telemetry_tool.format_compare_groups_response(result)
+            return [TextContent(type="text", text=response)]
+        except Exception as e:
+            logger.error(f"compare_groups failed: {e}")
             return [TextContent(type="text", text=f"Error: {e}")]
 
     else:
