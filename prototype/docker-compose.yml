@@ -9,7 +9,7 @@ services:
     image: caddy:2-alpine
     container_name: proto-caddy
     ports:
-      - "443:443"
+      - "9443:9443"
       - "8443:8443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
@@ -84,7 +84,7 @@ services:
       - ENABLE_OAUTH_GROUP_CREATION=true
       # WebUI settings
       - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY}
-      - WEBUI_URL=https://88.222.213.96
+      - WEBUI_URL=https://88.222.213.96:9443
       # Disable default login form for OAuth-only
       - ENABLE_LOGIN_FORM=false
       # Allow running without Ollama (we just need tools to work)
