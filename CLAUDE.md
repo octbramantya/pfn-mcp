@@ -155,7 +155,8 @@ bd sync                     # Sync with git (run before push)
 ## Session End Protocol
 
 Before completing work, always:
-1. `git add` changed files
-2. `bd sync`
-3. `git commit`
-4. `git push`
+1. `/tool-update` - Sync MCP tools with Open WebUI wrapper (if tools were modified)
+2. `git add` changed files
+3. `bd sync`
+4. `git commit`
+5. `git push`
