@@ -442,14 +442,15 @@ async def get_device_telemetry(
     bucket_interval = BUCKET_INTERVALS[selected_bucket]
 
     # Query telemetry data with aggregation
+    # Note: telemetry_15min_agg has aggregated_value and sample_count columns
     query = """
         SELECT
             time_bucket($1::interval, bucket) as time_bucket,
-            AVG(avg_value) as avg,
-            MIN(min_value) as min,
-            MAX(max_value) as max,
-            SUM(sum_value) as sum,
-            SUM(count_value) as count
+            AVG(aggregated_value) as avg,
+            MIN(aggregated_value) as min,
+            MAX(aggregated_value) as max,
+            SUM(aggregated_value) as sum,
+            SUM(sample_count) as count
         FROM telemetry_15min_agg
         WHERE device_id = $2
           AND quantity_id = $3
@@ -610,12 +611,13 @@ async def get_quantity_stats(
     query_end = now
 
     # Query stats from telemetry_15min_agg
+    # Note: telemetry_15min_agg has aggregated_value column (no separate min/max/avg)
     stats_query = """
         SELECT
             COUNT(*) as data_points,
-            MIN(min_value) as min_value,
-            MAX(max_value) as max_value,
-            AVG(avg_value) as avg_value,
+            MIN(aggregated_value) as min_value,
+            MAX(aggregated_value) as max_value,
+            AVG(aggregated_value) as avg_value,
             MIN(bucket) as first_reading,
             MAX(bucket) as last_reading
         FROM telemetry_15min_agg

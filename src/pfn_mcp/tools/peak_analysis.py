@@ -140,12 +140,13 @@ async def get_peak_analysis(
     device_placeholders = ", ".join(f"${i+5}" for i in range(len(device_ids)))
 
     # Query using CTE to find peaks per bucket and which device caused them
+    # Note: telemetry_15min_agg has aggregated_value column (no separate max_value)
     simple_peak_query = f"""
         WITH bucketed AS (
             SELECT
                 time_bucket($1::interval, bucket) as time_bucket,
                 device_id,
-                MAX(max_value) as device_max
+                MAX(aggregated_value) as device_max
             FROM telemetry_15min_agg
             WHERE quantity_id = $2
               AND bucket >= $3
@@ -199,8 +200,8 @@ async def get_peak_analysis(
     # Get overall stats
     stats_query = f"""
         SELECT
-            MAX(max_value) as overall_peak,
-            AVG(avg_value) as overall_avg,
+            MAX(aggregated_value) as overall_peak,
+            AVG(aggregated_value) as overall_avg,
             COUNT(DISTINCT bucket) as data_points
         FROM telemetry_15min_agg
         WHERE quantity_id = $1
@@ -270,8 +271,8 @@ async def _get_device_daily_breakdown(
         SELECT
             device_id,
             bucket::date as date,
-            MAX(max_value) as daily_peak,
-            AVG(avg_value) as daily_avg
+            MAX(aggregated_value) as daily_peak,
+            AVG(aggregated_value) as daily_avg
         FROM telemetry_15min_agg
         WHERE quantity_id = $1
           AND bucket >= $2

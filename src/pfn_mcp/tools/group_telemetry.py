@@ -467,18 +467,19 @@ async def _get_telemetry_group_summary(
 
     # For cumulative quantities (energy), sum the values
     # For instantaneous quantities (power, voltage), average the values
+    # Note: telemetry_15min_agg has aggregated_value column (no separate sum/avg/min/max)
     if is_cumulative:
-        agg_func = "SUM(sum_value)"
+        agg_func = "SUM(aggregated_value)"
         agg_label = "total"
     else:
-        agg_func = "AVG(avg_value)"
+        agg_func = "AVG(aggregated_value)"
         agg_label = "average"
 
     summary_query = f"""
         SELECT
             {agg_func} as agg_value,
-            MIN(min_value) as min_value,
-            MAX(max_value) as max_value,
+            MIN(aggregated_value) as min_value,
+            MAX(aggregated_value) as max_value,
             COUNT(DISTINCT bucket::date) as days_with_data,
             COUNT(DISTINCT device_id) as devices_with_data,
             COUNT(*) as data_points
@@ -558,17 +559,17 @@ async def _get_telemetry_device_breakdown(
     device_placeholders = ", ".join(f"${i+4}" for i in range(len(device_ids)))
 
     if is_cumulative:
-        agg_func = "SUM(sum_value)"
+        agg_func = "SUM(aggregated_value)"
     else:
-        agg_func = "AVG(avg_value)"
+        agg_func = "AVG(aggregated_value)"
 
     query = f"""
         SELECT
             d.id as device_id,
             d.display_name as device,
             {agg_func} as agg_value,
-            MIN(t.min_value) as min_value,
-            MAX(t.max_value) as max_value
+            MIN(t.aggregated_value) as min_value,
+            MAX(t.aggregated_value) as max_value
         FROM devices d
         LEFT JOIN telemetry_15min_agg t ON d.id = t.device_id
             AND t.quantity_id = $1
@@ -617,16 +618,16 @@ async def _get_telemetry_daily_breakdown(
     device_placeholders = ", ".join(f"${i+4}" for i in range(len(device_ids)))
 
     if is_cumulative:
-        agg_func = "SUM(sum_value)"
+        agg_func = "SUM(aggregated_value)"
     else:
-        agg_func = "AVG(avg_value)"
+        agg_func = "AVG(aggregated_value)"
 
     query = f"""
         SELECT
             bucket::date as date,
             {agg_func} as agg_value,
-            MIN(min_value) as min_value,
-            MAX(max_value) as max_value,
+            MIN(aggregated_value) as min_value,
+            MAX(aggregated_value) as max_value,
             COUNT(DISTINCT device_id) as device_count
         FROM telemetry_15min_agg
         WHERE quantity_id = $1
