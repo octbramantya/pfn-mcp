@@ -3,13 +3,14 @@
 import logging
 
 from pfn_mcp import db
+from pfn_mcp.tools.resolve import resolve_tenant
 
 logger = logging.getLogger(__name__)
 
 
 async def list_devices(
     search: str | None = None,
-    tenant_id: int | None = None,
+    tenant: str | None = None,
     limit: int = 20,
 ) -> list[dict]:
     """
@@ -17,7 +18,7 @@ async def list_devices(
 
     Args:
         search: Search term for device name (fuzzy matching)
-        tenant_id: Filter by tenant ID
+        tenant: Tenant name or code to filter devices (None = all tenants/superuser)
         limit: Maximum number of results
 
     Returns:
@@ -27,7 +28,12 @@ async def list_devices(
     params = []
     param_idx = 1
 
-    # Tenant filter
+    # Tenant filter - resolve string to ID
+    tenant_id = None
+    if tenant:
+        tenant_id, _, error = await resolve_tenant(tenant)
+        if error:
+            return []  # Return empty list on tenant not found
     if tenant_id is not None:
         conditions.append(f"d.tenant_id = ${param_idx}")
         params.append(tenant_id)

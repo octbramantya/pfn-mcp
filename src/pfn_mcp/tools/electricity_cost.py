@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from pfn_mcp import db
+from pfn_mcp.tools.resolve import resolve_tenant
 
 logger = logging.getLogger(__name__)
 
@@ -151,41 +152,6 @@ async def _resolve_device(
     return device_row["id"], dict(device_row), None
 
 
-async def _resolve_tenant(
-    tenant: str | None,
-) -> tuple[int | None, dict | None, str | None]:
-    """
-    Resolve tenant name to ID using fuzzy match.
-
-    Returns (tenant_id, tenant_info, error_message).
-    """
-    if not tenant:
-        return None, None, None
-
-    tenant_row = await db.fetch_one(
-        """
-        SELECT id, tenant_name, tenant_code
-        FROM tenants
-        WHERE is_active = true
-          AND (tenant_name ILIKE $1 OR tenant_code ILIKE $1)
-        ORDER BY
-            CASE
-                WHEN LOWER(tenant_name) = LOWER($2) THEN 0
-                WHEN LOWER(tenant_name) LIKE LOWER($2) || '%' THEN 1
-                ELSE 2
-            END
-        LIMIT 1
-        """,
-        f"%{tenant}%",
-        tenant,
-    )
-
-    if not tenant_row:
-        return None, None, f"Tenant not found: {tenant}"
-
-    return tenant_row["id"], dict(tenant_row), None
-
-
 BreakdownType = Literal["none", "daily", "shift", "rate", "source"]
 
 
@@ -223,7 +189,7 @@ async def get_electricity_cost(
         return {"error": error}
 
     # Resolve tenant
-    tenant_id, tenant_info, error = await _resolve_tenant(tenant)
+    tenant_id, tenant_info, error = await resolve_tenant(tenant)
     if error:
         return {"error": error}
 
@@ -770,7 +736,7 @@ async def get_electricity_cost_ranking(
         Dictionary with tenant, period, metric, and ranked devices
     """
     # Resolve tenant (required)
-    tenant_id, tenant_info, error = await _resolve_tenant(tenant)
+    tenant_id, tenant_info, error = await resolve_tenant(tenant)
     if error:
         return {"error": error}
 
@@ -1010,7 +976,7 @@ async def compare_electricity_periods(
         return {"error": error}
 
     # Resolve tenant
-    tenant_id, tenant_info, error = await _resolve_tenant(tenant)
+    tenant_id, tenant_info, error = await resolve_tenant(tenant)
     if error:
         return {"error": error}
 

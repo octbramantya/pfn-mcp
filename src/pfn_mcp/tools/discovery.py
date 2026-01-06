@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 from pfn_mcp import db
 from pfn_mcp.tools.quantities import QUANTITY_ALIASES
+from pfn_mcp.tools.resolve import resolve_tenant
 
 logger = logging.getLogger(__name__)
 
@@ -220,7 +221,7 @@ def format_device_data_range_response(result: dict) -> str:
 async def find_devices_by_quantity(
     quantity_id: int | None = None,
     quantity_search: str | None = None,
-    tenant_id: int | None = None,
+    tenant: str | None = None,
 ) -> dict:
     """
     Find all devices that have data for a specific quantity.
@@ -228,7 +229,7 @@ async def find_devices_by_quantity(
     Args:
         quantity_id: Specific quantity ID to search for
         quantity_search: Quantity search term (uses semantic aliases)
-        tenant_id: Optional tenant filter
+        tenant: Tenant name or code filter (None = all tenants/superuser)
 
     Returns:
         Dictionary with quantity info and list of devices grouped by tenant
@@ -281,6 +282,13 @@ async def find_devices_by_quantity(
         return {"error": f"No quantities found matching: {quantity_search or quantity_id}"}
 
     quantity_ids = [q["id"] for q in quantities]
+
+    # Resolve tenant filter - string to ID
+    tenant_id = None
+    if tenant:
+        tenant_id, _, error = await resolve_tenant(tenant)
+        if error:
+            return {"error": error}
 
     # Find devices with data for these quantities
     # Use a more efficient subquery approach
@@ -572,7 +580,7 @@ def format_device_info_response(result: dict) -> str:
 async def check_data_freshness(
     device_id: int | None = None,
     device_name: str | None = None,
-    tenant_id: int | None = None,
+    tenant: str | None = None,
     hours_threshold: int = 24,
 ) -> dict:
     """
@@ -581,7 +589,7 @@ async def check_data_freshness(
     Args:
         device_id: Specific device ID to check
         device_name: Device name (fuzzy search)
-        tenant_id: Check all devices for a tenant
+        tenant: Tenant name or code to check all devices (None = superuser mode)
         hours_threshold: Hours to consider data "stale" (default 24)
 
     Returns:
@@ -654,7 +662,12 @@ async def check_data_freshness(
             "threshold_hours": hours_threshold,
         }
 
-    elif tenant_id:
+    elif tenant:
+        # Resolve tenant string to ID
+        tenant_id, tenant_info, error = await resolve_tenant(tenant)
+        if error:
+            return {"error": error}
+
         # All devices for tenant
         devices_query = """
             SELECT
@@ -671,7 +684,7 @@ async def check_data_freshness(
         devices = await db.fetch_all(devices_query, tenant_id)
 
         if not devices:
-            return {"error": f"No devices found for tenant ID: {tenant_id}"}
+            return {"error": f"No devices found for tenant: {tenant}"}
 
         device_statuses = []
         status_counts = {"online": 0, "recent": 0, "stale": 0, "no_data": 0}
@@ -706,6 +719,7 @@ async def check_data_freshness(
             })
 
         return {
+            "tenant": tenant_info.get("tenant_name") if tenant_info else tenant,
             "tenant_id": tenant_id,
             "device_count": len(devices),
             "status_summary": status_counts,
@@ -714,7 +728,7 @@ async def check_data_freshness(
         }
 
     else:
-        return {"error": "Either device_id, device_name, or tenant_id is required"}
+        return {"error": "Either device_id, device_name, or tenant is required"}
 
 
 def format_data_freshness_response(result: dict) -> str:
@@ -748,8 +762,9 @@ def format_data_freshness_response(result: dict) -> str:
     else:
         # Tenant-wide check
         summary = result["status_summary"]
+        tenant_label = result.get("tenant") or f"Tenant ID: {result.get('tenant_id')}"
         lines.extend([
-            f"## Tenant ID: {result['tenant_id']}",
+            f"## {tenant_label}",
             f"Total devices: {result['device_count']}",
             "",
             "### Status Summary",

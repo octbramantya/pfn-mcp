@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 from pfn_mcp import db
 from pfn_mcp.tools.quantities import QUANTITY_ALIASES
+from pfn_mcp.tools.resolve import resolve_tenant
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ BUCKET_INTERVALS = {
 
 async def resolve_device(
     search: str,
-    tenant_id: int | None = None,
+    tenant: str | None = None,
     limit: int = 5,
 ) -> dict:
     """
@@ -54,7 +55,7 @@ async def resolve_device(
 
     Args:
         search: Device name search term
-        tenant_id: Optional tenant filter
+        tenant: Tenant name or code filter (None = all tenants/superuser)
         limit: Maximum candidates to return
 
     Returns:
@@ -67,7 +68,19 @@ async def resolve_device(
     params = []
     param_idx = 1
 
-    # Tenant filter
+    # Tenant filter - resolve string to ID
+    tenant_id = None
+    if tenant:
+        tenant_id, _, error = await resolve_tenant(tenant)
+        if error:
+            return {
+                "error": error,
+                "search": search_term,
+                "candidates": [],
+                "count": 0,
+                "needs_disambiguation": False,
+                "exact_match": False,
+            }
     if tenant_id is not None:
         conditions.append(f"d.tenant_id = ${param_idx}")
         params.append(tenant_id)
@@ -150,7 +163,7 @@ async def resolve_device(
 
     return {
         "search": search_term,
-        "tenant_filter": tenant_id,
+        "tenant_filter": tenant,
         "candidates": candidates,
         "count": len(candidates),
         "needs_disambiguation": needs_disambiguation,

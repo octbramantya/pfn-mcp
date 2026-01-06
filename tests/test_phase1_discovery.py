@@ -188,7 +188,7 @@ class TestDataAvailability:
         """Scenario #14: Which meters are currently offline?"""
         # Check freshness for all devices in tenant with 1-hour threshold
         result = await check_data_freshness(
-            tenant_id=sample_tenant["id"],
+            tenant=sample_tenant["tenant_code"],
             hours_threshold=1
         )
 
@@ -199,7 +199,7 @@ class TestDataAvailability:
     @pytest.mark.asyncio
     async def test_check_tenant_data_freshness(self, db_pool, sample_tenant):
         """Scenario #15: Check data freshness for all devices in tenant."""
-        result = await check_data_freshness(tenant_id=sample_tenant["id"])
+        result = await check_data_freshness(tenant=sample_tenant["tenant_code"])
 
         assert isinstance(result, dict)
         # Should have freshness info for tenant (devices list with status_summary)

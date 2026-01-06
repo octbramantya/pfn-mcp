@@ -53,9 +53,9 @@ async def list_tools() -> list[Tool]:
                         "type": "string",
                         "description": "Search term to filter devices by name",
                     },
-                    "tenant_id": {
-                        "type": "integer",
-                        "description": "Optional tenant ID to filter devices",
+                    "tenant": {
+                        "type": "string",
+                        "description": "Tenant name or code to filter devices (e.g., 'PRS')",
                     },
                     "limit": {
                         "type": "integer",
@@ -201,9 +201,9 @@ async def list_tools() -> list[Tool]:
                         "type": "string",
                         "description": "Quantity search term (voltage, power, energy, etc.)",
                     },
-                    "tenant_id": {
-                        "type": "integer",
-                        "description": "Optional: filter to specific tenant",
+                    "tenant": {
+                        "type": "string",
+                        "description": "Tenant name or code to filter results (e.g., 'PRS')",
                     },
                 },
                 "required": [],
@@ -250,9 +250,9 @@ async def list_tools() -> list[Tool]:
                         "type": "string",
                         "description": "Device name (fuzzy search)",
                     },
-                    "tenant_id": {
-                        "type": "integer",
-                        "description": "Check all devices for a tenant",
+                    "tenant": {
+                        "type": "string",
+                        "description": "Tenant name or code to check all devices (e.g., 'PRS')",
                     },
                     "hours_threshold": {
                         "type": "integer",
@@ -301,9 +301,9 @@ async def list_tools() -> list[Tool]:
                         "type": "string",
                         "description": "Device name search term",
                     },
-                    "tenant_id": {
-                        "type": "integer",
-                        "description": "Optional tenant ID to filter devices",
+                    "tenant": {
+                        "type": "string",
+                        "description": "Tenant name or code to filter devices (e.g., 'PRS')",
                     },
                     "limit": {
                         "type": "integer",
@@ -785,12 +785,12 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
     elif name == "list_devices":
         search = arguments.get("search")
-        tenant_id = arguments.get("tenant_id")
+        tenant = arguments.get("tenant")
         limit = arguments.get("limit", 20)
         try:
             results = await devices_tool.list_devices(
                 search=search,
-                tenant_id=tenant_id,
+                tenant=tenant,
                 limit=limit,
             )
             response = devices_tool.format_devices_response(results, search)
@@ -867,12 +867,12 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     elif name == "find_devices_by_quantity":
         quantity_id = arguments.get("quantity_id")
         quantity_search = arguments.get("quantity_search")
-        tenant_id = arguments.get("tenant_id")
+        tenant = arguments.get("tenant")
         try:
             result = await discovery_tool.find_devices_by_quantity(
                 quantity_id=quantity_id,
                 quantity_search=quantity_search,
-                tenant_id=tenant_id,
+                tenant=tenant,
             )
             response = discovery_tool.format_find_devices_response(result)
             return [TextContent(type="text", text=response)]
@@ -897,13 +897,13 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     elif name == "check_data_freshness":
         device_id = arguments.get("device_id")
         device_name = arguments.get("device_name")
-        tenant_id = arguments.get("tenant_id")
+        tenant = arguments.get("tenant")
         hours_threshold = arguments.get("hours_threshold", 24)
         try:
             result = await discovery_tool.check_data_freshness(
                 device_id=device_id,
                 device_name=device_name,
-                tenant_id=tenant_id,
+                tenant=tenant,
                 hours_threshold=hours_threshold,
             )
             response = discovery_tool.format_data_freshness_response(result)
@@ -928,12 +928,12 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
     elif name == "resolve_device":
         search = arguments.get("search", "")
-        tenant_id = arguments.get("tenant_id")
+        tenant = arguments.get("tenant")
         limit = arguments.get("limit", 5)
         try:
             result = await telemetry_tool.resolve_device(
                 search=search,
-                tenant_id=tenant_id,
+                tenant=tenant,
                 limit=limit,
             )
             response = telemetry_tool.format_resolve_device_response(result)
