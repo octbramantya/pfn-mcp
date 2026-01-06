@@ -92,6 +92,159 @@ Open WebUI injects the cached `tenant_code` in `__user__["info"]`:
 }
 ```
 
+## Superuser Handling
+
+Internal admins (superusers) require access to all tenants without being assigned to each one individually.
+
+### Design Principle
+
+**`superuser` group membership alone grants access to ALL tenants.** No additional tenant group memberships required.
+
+```
+Regular User:                    Superuser:
+┌─────────────────────────┐      ┌─────────────────────────┐
+│ groups: ["PRS"]         │      │ groups: ["superuser"]   │
+│                         │      │                         │
+│ → tenant_code = "PRS"   │      │ → tenant_code = None    │
+│ → sees PRS only         │      │ → sees ALL tenants      │
+└─────────────────────────┘      └─────────────────────────┘
+```
+
+### Keycloak Configuration
+
+Create a `superuser` group in Keycloak for internal admins:
+
+```
+Keycloak Groups:
+  - superuser     ← Internal admins (all-tenant access)
+  - PRS           ← Tenant: PT Rekayasa Sukses
+  - IOP           ← Tenant: PT Indo Optic Prima
+  - NAV           ← Tenant: Navigant Energy
+```
+
+### Wrapper Implementation
+
+Update `_get_tenant_context()` to detect superusers:
+
+```python
+def _get_tenant_context(self, __user__: dict) -> dict:
+    groups = self._get_user_groups(__user__)
+
+    # Check for superuser - grants access to all tenants
+    if "superuser" in groups:
+        return {
+            "tenant_code": None,      # None = no filtering = all tenants
+            "is_superuser": True,
+            "groups": groups,
+            "source": "superuser"
+        }
+
+    # Regular user - must have a tenant group
+    if not groups:
+        return {
+            "tenant_code": None,
+            "is_superuser": False,
+            "error": "User has no tenant assigned"
+        }
+
+    return {
+        "tenant_code": groups[0],     # First group = primary tenant
+        "is_superuser": False,
+        "groups": groups,
+        "source": "cached" if from_cache else "keycloak"
+    }
+```
+
+### MCP Tool Behavior
+
+Tools must handle `tenant_id=None` to return all tenants:
+
+```python
+async def list_devices(
+    search: str | None = None,
+    tenant_id: int | None = None,  # None = all tenants (superuser)
+    limit: int = 20,
+) -> list[dict]:
+    conditions = ["d.is_active = true"]
+    params = []
+
+    # Only filter if tenant_id is provided
+    if tenant_id is not None:
+        conditions.append(f"d.tenant_id = ${len(params) + 1}")
+        params.append(tenant_id)
+    # else: no tenant filter → returns all tenants
+
+    # ... rest of query
+```
+
+### Response Format for Superusers
+
+When superuser queries without tenant filter, include tenant context in results:
+
+```json
+{
+  "devices": [
+    {"id": 1, "name": "Meter 1", "tenant_name": "PT Rekayasa Sukses", "tenant_code": "PRS"},
+    {"id": 2, "name": "Meter 2", "tenant_name": "PT Rekayasa Sukses", "tenant_code": "PRS"},
+    {"id": 3, "name": "Meter A", "tenant_name": "PT Indo Optic Prima", "tenant_code": "IOP"}
+  ],
+  "summary": {
+    "total": 3,
+    "by_tenant": {
+      "PRS": 2,
+      "IOP": 1
+    }
+  }
+}
+```
+
+### Superuser with Tenant Override
+
+Superusers can optionally filter to a specific tenant:
+
+```python
+async def list_devices(
+    self,
+    search: str = "",
+    tenant: str = "",  # Optional: superuser can specify tenant
+    __user__: dict = None,
+) -> str:
+    ctx = self._get_tenant_context(__user__)
+
+    if tenant:
+        # Explicit tenant requested
+        if not ctx["is_superuser"]:
+            # Regular user can only access their own tenant
+            if tenant != ctx["tenant_code"]:
+                return {"error": f"Access denied to tenant: {tenant}"}
+        effective_tenant = tenant
+    else:
+        # Use default: None for superuser, their tenant for regular user
+        effective_tenant = ctx["tenant_code"]
+
+    result = await self._call_mcp("list_devices", {
+        "tenant_code": effective_tenant,
+        "search": search
+    })
+```
+
+### Security: Superuser Audit Trail
+
+Always log superuser access for security audits:
+
+```python
+if ctx["is_superuser"]:
+    logger.info(
+        "Superuser access",
+        extra={
+            "user_email": __user__["email"],
+            "tool": "list_devices",
+            "tenant_filter": effective_tenant or "ALL",
+            "params": {"search": search}
+        }
+    )
+```
+
 ## Implementing Tenant-Aware MCP Tools
 
 ### Pattern: Wrapper Tool (Recommended)
@@ -337,15 +490,17 @@ async def test_list_devices_tenant_isolation():
 
 ### Keycloak Group → tenant_code → tenant_id
 
-| Keycloak Group | tenant_code | tenant_id | tenant_name |
-|----------------|-------------|-----------|-------------|
-| PRS | PRS | 1 | PT Rekayasa Sukses |
-| IOP | IOP | 2 | PT Indo Optic Prima |
-| NAV | NAV | 3 | Navigant Energy |
+| Keycloak Group | tenant_code | tenant_id | tenant_name | Notes |
+|----------------|-------------|-----------|-------------|-------|
+| `superuser` | `None` | `None` | (all tenants) | Internal admins |
+| PRS | PRS | 1 | PT Rekayasa Sukses | |
+| IOP | IOP | 2 | PT Indo Optic Prima | |
+| NAV | NAV | 3 | Navigant Energy | |
 
 The mapping is maintained via:
 1. Keycloak groups (source of truth for user membership)
 2. `tenants` table in Valkyrie database (tenant_code column)
+3. `superuser` group is special - grants all-tenant access without database mapping
 
 ## Related Documentation
 
@@ -357,4 +512,5 @@ The mapping is maintained via:
 
 | Date | Change |
 |------|--------|
+| 2026-01-06 | Add superuser handling section |
 | 2026-01-06 | Initial documentation |
