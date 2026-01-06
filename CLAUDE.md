@@ -51,7 +51,8 @@ src/pfn_mcp/
     ├── discovery.py         # Data exploration tools (data range, freshness, info)
     ├── telemetry.py         # Phase 2 time-series tools (resolve_device, etc.)
     ├── electricity_cost.py  # Electricity cost tools (daily aggregates, breakdowns)
-    └── group_telemetry.py   # Group telemetry tools (by tag or asset hierarchy)
+    ├── group_telemetry.py   # Group telemetry tools (by tag or asset hierarchy)
+    └── peak_analysis.py     # Peak analysis tools (find peak values with timestamps)
 ```
 
 **Key patterns:**
@@ -100,12 +101,25 @@ Period formats supported: `7d`, `30d`, `1M`, `2025-12`, `2025-12-01 to 2025-12-1
 |------|-------------|
 | `list_tags` | List available device tags for grouping (by process, building, area, etc.) |
 | `list_tag_values` | List all values for a tag key with device counts |
-| `get_group_telemetry` | Aggregated consumption/cost for a group (by tag or asset hierarchy) |
+| `get_group_telemetry` | Aggregated telemetry for a group - default: electricity; with quantity: any WAGE metric |
 | `compare_groups` | Compare consumption across multiple groups side-by-side |
 
 Grouping options:
 - **Tag-based**: Use `tag_key` + `tag_value` (e.g., process=Waterjet, building=Factory A)
 - **Asset-based**: Use `asset_id` to get all downstream devices in hierarchy
+
+## Available Tools (Phase 2 - Peak Analysis)
+
+| Tool | Description |
+|------|-------------|
+| `get_peak_analysis` | Find peak values with timestamps for device or group (any WAGE quantity) |
+
+Features:
+- Supports single device or group (tag/asset)
+- Returns top N peaks per bucket (1hour/1day/1week)
+- Shows which device caused each peak in groups
+- Optional `device_daily` breakdown for per-device peaks
+- Aggregation: uses `telemetry_15min_agg` with adaptive bucketing
 
 ## Database Context
 
