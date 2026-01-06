@@ -12,8 +12,3 @@ https://88.222.213.96:8443 {
     tls internal
     reverse_proxy keycloak:8080
 }
-
-# Redirect HTTP to HTTPS
-http://88.222.213.96 {
-    redir https://88.222.213.96{uri}
-}
