@@ -232,7 +232,7 @@ The database already has useful functions that could be wrapped by MCP tools:
 - Smart time range selection (auto-select `telemetry_data` vs `telemetry_15min_agg`)
 - Adaptive bucketing based on query duration
 - Fuzzy device matching with disambiguation
-- Multi-quantity queries (e.g., "show power and power factor")
+- Multi-quantity queries (e.g., "show power and power factor") - **Pushed to latter stages as this is considered a nice to have instead of core feature**
 
 ### Phase 3: Advanced Analytics
 
