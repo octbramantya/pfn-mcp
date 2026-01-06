@@ -1,0 +1,9 @@
+# Environment files
+.env
+
+# Generated files
+team_keys.json
+
+# Python
+__pycache__/
+*.pyc

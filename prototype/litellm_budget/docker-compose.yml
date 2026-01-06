@@ -1,0 +1,91 @@
+# Prototype: LiteLLM Per-Team Budget Enforcement
+# Task: pfn_mcp-j8e
+#
+# This setup tests:
+# 1. Creating teams with budget limits
+# 2. Generating API keys for teams
+# 3. Budget enforcement (requests rejected when exceeded)
+# 4. Open WebUI user header forwarding to LiteLLM
+
+services:
+  # PostgreSQL for LiteLLM budget/spend tracking
+  litellm-db:
+    image: postgres:16-alpine
+    container_name: proto-litellm-db
+    environment:
+      - POSTGRES_DB=litellm
+      - POSTGRES_USER=litellm
+      - POSTGRES_PASSWORD=litellm
+    volumes:
+      - litellm-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U litellm"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - proto-net
+
+  # LiteLLM Proxy with budget enforcement
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: proto-litellm
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-sk-master-key}
+      - LITELLM_DATABASE_URL=postgresql://litellm:litellm@litellm-db:5432/litellm
+    volumes:
+      - ./litellm-config.yaml:/app/config.yaml
+    ports:
+      - "4000:4000"
+    command: ["--config", "/app/config.yaml", "--detailed_debug"]
+    depends_on:
+      litellm-db:
+        condition: service_healthy
+    networks:
+      - proto-net
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Open WebUI pointing to LiteLLM
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: proto-openwebui
+    environment:
+      # Point to LiteLLM instead of direct OpenAI
+      - OPENAI_API_BASE_URL=http://litellm:4000/v1
+      - OPENAI_API_KEY=${OPENWEBUI_LITELLM_KEY:-sk-team-key}
+
+      # Forward user info to LiteLLM (key for budget tracking)
+      - ENABLE_FORWARD_USER_INFO_HEADERS=True
+
+      # WebUI settings
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:-change-me-in-prod}
+      - WEBUI_URL=http://localhost:3000
+
+      # Keep login form for prototype testing
+      - ENABLE_LOGIN_FORM=true
+      - ENABLE_SIGNUP=true
+
+      # Disable Ollama (not needed for this test)
+      - OLLAMA_BASE_URL=
+    ports:
+      - "3000:8080"
+    volumes:
+      - open-webui-data:/app/backend/data
+    depends_on:
+      litellm:
+        condition: service_healthy
+    networks:
+      - proto-net
+
+volumes:
+  litellm-db-data:
+  open-webui-data:
+
+networks:
+  proto-net:
+    driver: bridge

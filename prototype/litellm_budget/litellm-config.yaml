@@ -1,0 +1,41 @@
+# LiteLLM Proxy Configuration
+# Prototype: Per-team budget enforcement
+
+model_list:
+  # OpenAI models for development/testing
+  - model_name: gpt-4o
+    litellm_params:
+      model: gpt-4o
+      api_key: os.environ/OPENAI_API_KEY
+
+  - model_name: gpt-4o-mini
+    litellm_params:
+      model: gpt-4o-mini
+      api_key: os.environ/OPENAI_API_KEY
+
+  # Claude models (uncomment when Anthropic API is available)
+  # - model_name: claude-sonnet
+  #   litellm_params:
+  #     model: claude-sonnet-4-20250514
+  #     api_key: os.environ/ANTHROPIC_API_KEY
+
+litellm_settings:
+  # Request logging for debugging
+  set_verbose: true
+
+  # Upper bound for key generation requests
+  upperbound_key_generate_params:
+    max_budget: 100  # Max $100 per key
+
+general_settings:
+  # Master key for admin operations
+  master_key: os.environ/LITELLM_MASTER_KEY
+
+  # Database for persistent budget tracking
+  database_url: os.environ/LITELLM_DATABASE_URL
+
+  # Enable cost tracking
+  enable_cost_tracking: true
+
+  # Store request logs
+  store_model_in_db: true
