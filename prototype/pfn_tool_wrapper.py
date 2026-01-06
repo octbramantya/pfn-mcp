@@ -143,11 +143,17 @@ class Tools:
             result["source"] = "cached"
             return result
 
-        # Fetch from Keycloak
-        oauth_sub = __user__.get("oauth_sub")
+        # Fetch from Keycloak - oauth_sub is nested in oauth.oidc.sub
+        oauth = __user__.get("oauth") or {}
+        if isinstance(oauth, str):
+            try:
+                oauth = json.loads(oauth)
+            except:
+                oauth = {}
+        oauth_sub = oauth.get("oidc", {}).get("sub")
         if not oauth_sub:
             result["source"] = "error"
-            result["error"] = "No oauth_sub in user context - not an OAuth user?"
+            result["error"] = "No oauth_sub in user.oauth.oidc.sub - not an OAuth user?"
             return result
 
         try:
