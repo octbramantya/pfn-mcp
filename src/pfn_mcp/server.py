@@ -14,6 +14,7 @@ from pfn_mcp.tools import devices as devices_tool
 from pfn_mcp.tools import discovery as discovery_tool
 from pfn_mcp.tools import electricity_cost as electricity_cost_tool
 from pfn_mcp.tools import group_telemetry as group_telemetry_tool
+from pfn_mcp.tools import peak_analysis as peak_analysis_tool
 from pfn_mcp.tools import quantities as quantities_tool
 from pfn_mcp.tools import telemetry as telemetry_tool
 from pfn_mcp.tools import tenants as tenants_tool
@@ -598,10 +599,11 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="get_group_telemetry",
             description=(
-                "Get aggregated electricity consumption and cost for a group of devices. "
+                "Get aggregated telemetry for a group of devices. "
+                "Default: electricity consumption/cost. "
+                "With quantity: any WAGE metric (power, water flow, air pressure, etc.). "
                 "Group by tag (tag_key + tag_value) or asset hierarchy (asset_id). "
-                "Supports breakdown by device or daily. "
-                "Period formats: '7d', '1M', '2025-12', or 'YYYY-MM-DD to YYYY-MM-DD'."
+                "Supports breakdown by device or daily."
             ),
             inputSchema={
                 "type": "object",
@@ -617,6 +619,17 @@ async def list_tools() -> list[Tool]:
                     "asset_id": {
                         "type": "integer",
                         "description": "Asset ID for hierarchy-based grouping",
+                    },
+                    "quantity_id": {
+                        "type": "integer",
+                        "description": "Quantity ID for WAGE metrics (omit for electricity cost)",
+                    },
+                    "quantity_search": {
+                        "type": "string",
+                        "description": (
+                            "Quantity search: power, voltage, water flow, air pressure, etc. "
+                            "(omit for electricity cost)"
+                        ),
                     },
                     "period": {
                         "type": "string",
@@ -679,6 +692,78 @@ async def list_tools() -> list[Tool]:
                     },
                 },
                 "required": ["groups"],
+            },
+        ),
+        # Peak analysis tools
+        Tool(
+            name="get_peak_analysis",
+            description=(
+                "Find peak values with timestamps for a device or group. "
+                "Returns top N peaks per bucket (hour/day/week). "
+                "Shows which device caused each peak. "
+                "Supports any WAGE quantity: power, flow, pressure, etc."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "device_id": {
+                        "type": "integer",
+                        "description": "Single device ID",
+                    },
+                    "device_name": {
+                        "type": "string",
+                        "description": "Single device name (fuzzy search)",
+                    },
+                    "tag_key": {
+                        "type": "string",
+                        "description": "Tag key for group (e.g., 'process', 'building')",
+                    },
+                    "tag_value": {
+                        "type": "string",
+                        "description": "Tag value for group (e.g., 'Waterjet')",
+                    },
+                    "asset_id": {
+                        "type": "integer",
+                        "description": "Asset ID for hierarchy-based grouping",
+                    },
+                    "quantity_id": {
+                        "type": "integer",
+                        "description": "Quantity ID (e.g., 185 for Active Power)",
+                    },
+                    "quantity_search": {
+                        "type": "string",
+                        "description": "Quantity search: power, flow, pressure, voltage, etc.",
+                    },
+                    "period": {
+                        "type": "string",
+                        "description": "Time period: '7d', '30d', '1M' (default: 7d)",
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "description": "Explicit start date (YYYY-MM-DD)",
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "description": "Explicit end date (YYYY-MM-DD)",
+                    },
+                    "bucket": {
+                        "type": "string",
+                        "description": "Bucket size: '1hour', '1day', '1week' (auto if omitted)",
+                        "enum": ["1hour", "1day", "1week"],
+                    },
+                    "top_n": {
+                        "type": "integer",
+                        "description": "Number of top peaks to return (default: 10)",
+                        "default": 10,
+                    },
+                    "breakdown": {
+                        "type": "string",
+                        "description": "Breakdown: 'none' or 'device_daily' (default: none)",
+                        "enum": ["none", "device_daily"],
+                        "default": "none",
+                    },
+                },
+                "required": [],
             },
         ),
     ]
@@ -995,6 +1080,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 tag_key=arguments.get("tag_key"),
                 tag_value=arguments.get("tag_value"),
                 asset_id=arguments.get("asset_id"),
+                quantity_id=arguments.get("quantity_id"),
+                quantity_search=arguments.get("quantity_search"),
                 period=arguments.get("period"),
                 start_date=arguments.get("start_date"),
                 end_date=arguments.get("end_date"),
@@ -1021,6 +1108,29 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text=response)]
         except Exception as e:
             logger.error(f"compare_groups failed: {e}")
+            return [TextContent(type="text", text=f"Error: {e}")]
+
+    elif name == "get_peak_analysis":
+        try:
+            result = await peak_analysis_tool.get_peak_analysis(
+                device_id=arguments.get("device_id"),
+                device_name=arguments.get("device_name"),
+                tag_key=arguments.get("tag_key"),
+                tag_value=arguments.get("tag_value"),
+                asset_id=arguments.get("asset_id"),
+                quantity_id=arguments.get("quantity_id"),
+                quantity_search=arguments.get("quantity_search"),
+                period=arguments.get("period"),
+                start_date=arguments.get("start_date"),
+                end_date=arguments.get("end_date"),
+                bucket=arguments.get("bucket"),
+                top_n=arguments.get("top_n", 10),
+                breakdown=arguments.get("breakdown", "none"),
+            )
+            response = peak_analysis_tool.format_peak_analysis_response(result)
+            return [TextContent(type="text", text=response)]
+        except Exception as e:
+            logger.error(f"get_peak_analysis failed: {e}")
             return [TextContent(type="text", text=f"Error: {e}")]
 
     else:

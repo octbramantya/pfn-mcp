@@ -6,11 +6,17 @@ from typing import Literal
 
 from pfn_mcp import db
 from pfn_mcp.tools.electricity_cost import parse_period
+from pfn_mcp.tools.telemetry import _resolve_quantity_id
 
 logger = logging.getLogger(__name__)
 
 # Active Energy Delivered quantity ID
 ACTIVE_ENERGY_QTY_ID = 124
+
+# Aggregation methods for different quantity types
+# "SUM" for cumulative quantities (energy), "AVG" for instantaneous (power, voltage)
+CUMULATIVE_METHODS = {"sum", "total", "cumulative"}
+INSTANTANEOUS_METHODS = {"avg", "average", "mean", "instantaneous"}
 
 
 async def list_tags(
@@ -246,21 +252,26 @@ async def get_group_telemetry(
     tag_key: str | None = None,
     tag_value: str | None = None,
     asset_id: int | None = None,
+    quantity_id: int | None = None,
+    quantity_search: str | None = None,
     period: str | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
     breakdown: Literal["none", "device", "daily"] = "none",
 ) -> dict:
     """
-    Get aggregated electricity consumption and cost for a group of devices.
+    Get aggregated telemetry for a group of devices.
 
     Group by tag (tag_key + tag_value) or asset hierarchy (asset_id).
-    Uses daily_energy_cost_summary for pre-calculated consumption/cost.
+    Default: electricity consumption/cost from daily_energy_cost_summary.
+    With quantity specified: any WAGE metric from telemetry_15min_agg.
 
     Args:
         tag_key: Tag key for grouping (e.g., "process", "building")
         tag_value: Tag value to match (e.g., "Waterjet", "Factory A")
         asset_id: Asset ID for hierarchy-based grouping
+        quantity_id: Quantity ID for non-electricity metrics
+        quantity_search: Quantity search term (e.g., "power", "water flow")
         period: Time period - "7d", "1M", "2025-12", etc.
         start_date: Explicit start date (YYYY-MM-DD)
         end_date: Explicit end date (YYYY-MM-DD)
@@ -309,10 +320,69 @@ async def get_group_telemetry(
 
     query_start, query_end = result
 
-    # Build device list for query
+    # Format period string
+    start_str = query_start.strftime("%Y-%m-%d")
+    end_str = (query_end - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    # Determine if using custom quantity or default electricity
+    use_custom_quantity = quantity_id is not None or quantity_search is not None
+
+    if use_custom_quantity:
+        # Resolve quantity for WAGE telemetry
+        resolved_qty_id, qty_info, error = await _resolve_quantity_id(
+            quantity_id, quantity_search
+        )
+        if error:
+            return {"error": error}
+
+        return await _get_telemetry_group_summary(
+            device_ids=device_ids,
+            device_names=device_names,
+            device_count=device_count,
+            result_type=result_type,
+            group_type=group_type,
+            group_label=group_label,
+            quantity_id=resolved_qty_id,
+            quantity_info=qty_info,
+            query_start=query_start,
+            query_end=query_end,
+            start_str=start_str,
+            end_str=end_str,
+            breakdown=breakdown,
+        )
+    else:
+        # Default: electricity consumption/cost
+        return await _get_electricity_group_summary(
+            device_ids=device_ids,
+            device_names=device_names,
+            device_count=device_count,
+            result_type=result_type,
+            group_type=group_type,
+            group_label=group_label,
+            query_start=query_start,
+            query_end=query_end,
+            start_str=start_str,
+            end_str=end_str,
+            breakdown=breakdown,
+        )
+
+
+async def _get_electricity_group_summary(
+    device_ids: list[int],
+    device_names: list[str],
+    device_count: int,
+    result_type: str,
+    group_type: str,
+    group_label: str,
+    query_start: datetime,
+    query_end: datetime,
+    start_str: str,
+    end_str: str,
+    breakdown: str,
+) -> dict:
+    """Get electricity consumption/cost summary from daily_energy_cost_summary."""
     device_placeholders = ", ".join(f"${i+4}" for i in range(len(device_ids)))
 
-    # Get summary totals
     summary_query = f"""
         SELECT
             COALESCE(SUM(total_consumption), 0) as total_consumption_kwh,
@@ -339,12 +409,7 @@ async def get_group_telemetry(
     days_with_data = summary["days_with_data"] or 0
     devices_with_data = summary["devices_with_data"] or 0
 
-    # Calculate average rate
     avg_rate = total_cost / total_consumption if total_consumption > 0 else 0
-
-    # Format period string
-    start_str = query_start.strftime("%Y-%m-%d")
-    end_str = (query_end - timedelta(days=1)).strftime("%Y-%m-%d")
 
     result_dict = {
         "group": {
@@ -364,7 +429,6 @@ async def get_group_telemetry(
         },
     }
 
-    # Get breakdown if requested
     if breakdown == "device":
         breakdown_data = await _get_device_breakdown(
             device_ids, query_start, query_end, total_consumption
@@ -377,6 +441,226 @@ async def get_group_telemetry(
         result_dict["breakdown"] = breakdown_data
 
     return result_dict
+
+
+async def _get_telemetry_group_summary(
+    device_ids: list[int],
+    device_names: list[str],
+    device_count: int,
+    result_type: str,
+    group_type: str,
+    group_label: str,
+    quantity_id: int,
+    quantity_info: dict,
+    query_start: datetime,
+    query_end: datetime,
+    start_str: str,
+    end_str: str,
+    breakdown: str,
+) -> dict:
+    """Get WAGE telemetry summary from telemetry_15min_agg."""
+    device_placeholders = ", ".join(f"${i+4}" for i in range(len(device_ids)))
+
+    # Determine aggregation method from quantity info
+    agg_method = (quantity_info.get("aggregation_method") or "avg").lower()
+    is_cumulative = agg_method in CUMULATIVE_METHODS
+
+    # For cumulative quantities (energy), sum the values
+    # For instantaneous quantities (power, voltage), average the values
+    if is_cumulative:
+        agg_func = "SUM(sum_value)"
+        agg_label = "total"
+    else:
+        agg_func = "AVG(avg_value)"
+        agg_label = "average"
+
+    summary_query = f"""
+        SELECT
+            {agg_func} as agg_value,
+            MIN(min_value) as min_value,
+            MAX(max_value) as max_value,
+            COUNT(DISTINCT bucket::date) as days_with_data,
+            COUNT(DISTINCT device_id) as devices_with_data,
+            COUNT(*) as data_points
+        FROM telemetry_15min_agg
+        WHERE quantity_id = $1
+          AND bucket >= $2
+          AND bucket < $3
+          AND device_id IN ({device_placeholders})
+    """
+
+    summary = await db.fetch_one(
+        summary_query,
+        quantity_id,
+        query_start,
+        query_end,
+        *device_ids,
+    )
+
+    agg_value = float(summary["agg_value"] or 0)
+    min_value = float(summary["min_value"]) if summary["min_value"] else None
+    max_value = float(summary["max_value"]) if summary["max_value"] else None
+    days_with_data = summary["days_with_data"] or 0
+    devices_with_data = summary["devices_with_data"] or 0
+    data_points = summary["data_points"] or 0
+
+    unit = quantity_info.get("unit") or ""
+
+    result_dict = {
+        "group": {
+            "type": group_type,
+            "label": group_label,
+            "result_type": result_type,
+            "device_count": device_count,
+            "devices_with_data": devices_with_data,
+            "devices": device_names,
+        },
+        "quantity": {
+            "id": quantity_id,
+            "name": quantity_info["quantity_name"],
+            "unit": unit,
+            "aggregation": agg_label,
+        },
+        "summary": {
+            f"{agg_label}_value": round(agg_value, 2),
+            "min_value": round(min_value, 2) if min_value else None,
+            "max_value": round(max_value, 2) if max_value else None,
+            "unit": unit,
+            "period": f"{start_str} to {end_str}",
+            "days_with_data": days_with_data,
+            "data_points": data_points,
+        },
+    }
+
+    if breakdown == "device":
+        breakdown_data = await _get_telemetry_device_breakdown(
+            device_ids, quantity_id, query_start, query_end, agg_value, is_cumulative
+        )
+        result_dict["breakdown"] = breakdown_data
+    elif breakdown == "daily":
+        breakdown_data = await _get_telemetry_daily_breakdown(
+            device_ids, quantity_id, query_start, query_end, is_cumulative
+        )
+        result_dict["breakdown"] = breakdown_data
+
+    return result_dict
+
+
+async def _get_telemetry_device_breakdown(
+    device_ids: list[int],
+    quantity_id: int,
+    start_dt: datetime,
+    end_dt: datetime,
+    total_value: float,
+    is_cumulative: bool,
+) -> list[dict]:
+    """Get per-device breakdown for telemetry data."""
+    device_placeholders = ", ".join(f"${i+4}" for i in range(len(device_ids)))
+
+    if is_cumulative:
+        agg_func = "SUM(sum_value)"
+    else:
+        agg_func = "AVG(avg_value)"
+
+    query = f"""
+        SELECT
+            d.id as device_id,
+            d.display_name as device,
+            {agg_func} as agg_value,
+            MIN(t.min_value) as min_value,
+            MAX(t.max_value) as max_value
+        FROM devices d
+        LEFT JOIN telemetry_15min_agg t ON d.id = t.device_id
+            AND t.quantity_id = $1
+            AND t.bucket >= $2
+            AND t.bucket < $3
+        WHERE d.id IN ({device_placeholders})
+        GROUP BY d.id, d.display_name
+        ORDER BY agg_value DESC NULLS LAST
+    """
+
+    rows = await db.fetch_all(
+        query,
+        quantity_id,
+        start_dt,
+        end_dt,
+        *device_ids,
+    )
+
+    breakdown = []
+    for row in rows:
+        agg_value = float(row.get("agg_value", 0) or 0)
+        min_val = float(row.get("min_value", 0) or 0) if row.get("min_value") else None
+        max_val = float(row.get("max_value", 0) or 0) if row.get("max_value") else None
+        pct = 100 * agg_value / total_value if total_value > 0 else 0
+
+        breakdown.append({
+            "device": row.get("device"),
+            "device_id": row.get("device_id"),
+            "value": round(agg_value, 2),
+            "min": round(min_val, 2) if min_val else None,
+            "max": round(max_val, 2) if max_val else None,
+            "percentage": round(pct, 1),
+        })
+
+    return breakdown
+
+
+async def _get_telemetry_daily_breakdown(
+    device_ids: list[int],
+    quantity_id: int,
+    start_dt: datetime,
+    end_dt: datetime,
+    is_cumulative: bool,
+) -> list[dict]:
+    """Get daily breakdown for telemetry data."""
+    device_placeholders = ", ".join(f"${i+4}" for i in range(len(device_ids)))
+
+    if is_cumulative:
+        agg_func = "SUM(sum_value)"
+    else:
+        agg_func = "AVG(avg_value)"
+
+    query = f"""
+        SELECT
+            bucket::date as date,
+            {agg_func} as agg_value,
+            MIN(min_value) as min_value,
+            MAX(max_value) as max_value,
+            COUNT(DISTINCT device_id) as device_count
+        FROM telemetry_15min_agg
+        WHERE quantity_id = $1
+          AND bucket >= $2
+          AND bucket < $3
+          AND device_id IN ({device_placeholders})
+        GROUP BY bucket::date
+        ORDER BY date
+    """
+
+    rows = await db.fetch_all(
+        query,
+        quantity_id,
+        start_dt,
+        end_dt,
+        *device_ids,
+    )
+
+    breakdown = []
+    for row in rows:
+        agg_value = float(row.get("agg_value", 0) or 0)
+        min_val = float(row.get("min_value", 0) or 0) if row.get("min_value") else None
+        max_val = float(row.get("max_value", 0) or 0) if row.get("max_value") else None
+        date_val = row.get("date")
+
+        breakdown.append({
+            "date": date_val.strftime("%Y-%m-%d") if date_val else None,
+            "value": round(agg_value, 2),
+            "min": round(min_val, 2) if min_val else None,
+            "max": round(max_val, 2) if max_val else None,
+            "device_count": row.get("device_count", 0),
+        })
+
+    return breakdown
 
 
 async def _get_device_breakdown(
@@ -486,6 +770,9 @@ def format_group_telemetry_response(result: dict) -> str:
     result_type = group.get("result_type", "aggregated_group")
     devices = group.get("devices", [])
 
+    # Check if this is WAGE telemetry (has quantity info)
+    is_wage = "quantity" in result
+
     # Format header based on result type
     if result_type == "single_meter":
         header = f"## {group['label']} (single meter: {devices[0]})"
@@ -495,11 +782,17 @@ def format_group_telemetry_response(result: dict) -> str:
     else:
         header = f"## {group['label']} ({group['device_count']} devices)"
 
-    lines = [
-        header,
+    lines = [header]
+
+    # Add quantity info for WAGE telemetry
+    if is_wage:
+        qty = result["quantity"]
+        lines.append(f"**Quantity**: {qty['name']} ({qty['unit']})")
+
+    lines.extend([
         f"**Period**: {summary['period']}",
         f"**Days with data**: {summary['days_with_data']}",
-    ]
+    ])
 
     # Only show device count details for aggregated groups
     if result_type == "aggregated_group":
@@ -507,39 +800,74 @@ def format_group_telemetry_response(result: dict) -> str:
         total = group['device_count']
         lines.append(f"**Devices reporting**: {with_data} of {total}")
 
-    lines.extend([
-        "",
-        "### Summary",
-        f"- **Consumption**: {summary['total_consumption_kwh']:,.2f} kWh",
-        f"- **Cost**: Rp {summary['total_cost_rp']:,.0f}",
-        f"- **Avg Rate**: Rp {summary['avg_rate_per_kwh']:,.2f}/kWh",
-    ])
+    lines.extend(["", "### Summary"])
+
+    if is_wage:
+        # WAGE telemetry summary
+        qty = result["quantity"]
+        unit = qty.get("unit", "")
+        agg = qty.get("aggregation", "value")
+
+        # Get the aggregated value key (total_value or average_value)
+        agg_key = f"{agg}_value"
+        agg_value = summary.get(agg_key, 0)
+
+        lines.append(f"- **{agg.title()}**: {agg_value:,.2f} {unit}")
+        if summary.get("min_value") is not None:
+            lines.append(f"- **Min**: {summary['min_value']:,.2f} {unit}")
+        if summary.get("max_value") is not None:
+            lines.append(f"- **Max**: {summary['max_value']:,.2f} {unit}")
+        if summary.get("data_points"):
+            lines.append(f"- **Data points**: {summary['data_points']:,}")
+    else:
+        # Electricity summary
+        lines.extend([
+            f"- **Consumption**: {summary['total_consumption_kwh']:,.2f} kWh",
+            f"- **Cost**: Rp {summary['total_cost_rp']:,.0f}",
+            f"- **Avg Rate**: Rp {summary['avg_rate_per_kwh']:,.2f}/kWh",
+        ])
 
     # Add breakdown if present
     breakdown = result.get("breakdown", [])
     if breakdown:
-        lines.append("")
-        lines.append("### Breakdown")
-        lines.append("")
+        lines.extend(["", "### Breakdown", ""])
 
         # Detect breakdown type from first item
         first = breakdown[0]
-        if "device" in first:
-            # Device breakdown
-            for item in breakdown:
-                device = item.get("device", "?")
-                kwh = item["consumption_kwh"]
-                rp = item["cost_rp"]
-                pct = item["percentage"]
-                lines.append(f"- **{device}**: {kwh:,.2f} kWh ({pct}%), Rp {rp:,.0f}")
-        elif "date" in first:
-            # Daily breakdown
-            for item in breakdown:
-                date = item.get("date", "?")
-                kwh = item["consumption_kwh"]
-                rp = item["cost_rp"]
-                devices = item.get("device_count", 0)
-                lines.append(f"- {date}: {kwh:,.2f} kWh, Rp {rp:,.0f} ({devices} devices)")
+
+        if is_wage:
+            # WAGE telemetry breakdown
+            qty = result["quantity"]
+            unit = qty.get("unit", "")
+
+            if "device" in first:
+                for item in breakdown:
+                    device = item.get("device", "?")
+                    value = item["value"]
+                    pct = item["percentage"]
+                    lines.append(f"- **{device}**: {value:,.2f} {unit} ({pct}%)")
+            elif "date" in first:
+                for item in breakdown:
+                    date = item.get("date", "?")
+                    value = item["value"]
+                    dev_count = item.get("device_count", 0)
+                    lines.append(f"- {date}: {value:,.2f} {unit} ({dev_count} devices)")
+        else:
+            # Electricity breakdown
+            if "device" in first:
+                for item in breakdown:
+                    device = item.get("device", "?")
+                    kwh = item["consumption_kwh"]
+                    rp = item["cost_rp"]
+                    pct = item["percentage"]
+                    lines.append(f"- **{device}**: {kwh:,.2f} kWh ({pct}%), Rp {rp:,.0f}")
+            elif "date" in first:
+                for item in breakdown:
+                    date = item.get("date", "?")
+                    kwh = item["consumption_kwh"]
+                    rp = item["cost_rp"]
+                    dev_count = item.get("device_count", 0)
+                    lines.append(f"- {date}: {kwh:,.2f} kWh, Rp {rp:,.0f} ({dev_count} devices)")
 
     return "\n".join(lines)
 
