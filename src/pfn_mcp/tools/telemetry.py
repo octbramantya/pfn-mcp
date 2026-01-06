@@ -129,6 +129,7 @@ async def resolve_device(
     candidates = []
     for row in rows:
         conf_num = row.get("match_confidence", 3)
+        conf_label = confidence_labels.get(conf_num, "fuzzy")
         candidates.append({
             "id": row["id"],
             "display_name": row.get("display_name") or row.get("device_name"),
@@ -136,14 +137,15 @@ async def resolve_device(
             "device_type": row.get("device_type"),
             "tenant_id": row["tenant_id"],
             "tenant_name": row.get("tenant_name"),
-            "match_confidence": confidence_labels.get(conf_num, "fuzzy"),
+            "confidence": conf_label,
+            "match_type": conf_label,
         })
 
     # Determine if disambiguation is needed
     needs_disambiguation = (
         len(candidates) == 0
         or len(candidates) > 1
-        or (len(candidates) == 1 and candidates[0]["match_confidence"] != "exact")
+        or (len(candidates) == 1 and candidates[0]["confidence"] != "exact")
     )
 
     return {
@@ -153,7 +155,7 @@ async def resolve_device(
         "count": len(candidates),
         "needs_disambiguation": needs_disambiguation,
         "exact_match": (
-            len(candidates) == 1 and candidates[0]["match_confidence"] == "exact"
+            len(candidates) == 1 and candidates[0]["confidence"] == "exact"
         ),
     }
 
@@ -182,7 +184,7 @@ def format_resolve_device_response(result: dict) -> str:
     lines = [f"Found {count} device(s) matching '{search}':\n"]
 
     for i, device in enumerate(candidates, 1):
-        conf = device["match_confidence"].upper()
+        conf = device["confidence"].upper()
         tenant = device["tenant_name"] or "Unknown"
         lines.append(
             f"{i}. **{device['display_name']}** (ID: {device['id']}) "
