@@ -750,8 +750,8 @@ async def get_electricity_cost_ranking(
 
     query_start, query_end = result
 
-    # Determine ORDER BY based on metric
-    order_col = "total_cost" if metric == "cost" else "total_consumption"
+    # Determine ORDER BY based on metric (use aliases from SELECT clause)
+    order_col = "cost_rp" if metric == "cost" else "consumption_kwh"
 
     # Query aggregated by device
     query = f"""
