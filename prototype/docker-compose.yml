@@ -70,6 +70,7 @@ services:
       # WebUI settings
       - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY}
       - WEBUI_URL=https://chat.forsanusa.id
+      - WEBUI_AUTH_SIGNOUT_REDIRECT_URL=https://chat.forsanusa.id/
       # Disable default login form for OAuth-only
       - ENABLE_LOGIN_FORM=false
       # Allow running without Ollama (we just need tools to work)
