@@ -1,14 +1,17 @@
 # Caddy reverse proxy for prototype
-# Self-signed certs for IP address (browser will show warning)
+# Self-signed certs (browser will show warning)
+{
+    auto_https off
+}
 
 # Open WebUI on port 9443
-https://88.222.213.96:9443 {
+:9443 {
     tls internal
     reverse_proxy open-webui:8080
 }
 
 # Keycloak on port 8443
-https://88.222.213.96:8443 {
+:8443 {
     tls internal
     reverse_proxy keycloak:8080
 }
