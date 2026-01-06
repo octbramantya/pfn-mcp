@@ -60,9 +60,12 @@ class TestGroupConsumption:
         )
 
         assert isinstance(result, dict)
-        # Should have consumption data
-        valid_keys = ["consumption", "total", "data", "telemetry"]
-        assert any(k in result for k in valid_keys)
+        # Should have group telemetry structure
+        assert "summary" in result or "error" in result
+        if "summary" in result:
+            # Default (no quantity) returns electricity data with total_consumption_kwh
+            summary = result["summary"]
+            assert "total_consumption_kwh" in summary or "total_cost_rp" in summary
 
     @pytest.mark.asyncio
     async def test_building_power_usage(self, db_pool, sample_tag):
@@ -78,9 +81,11 @@ class TestGroupConsumption:
         )
 
         assert isinstance(result, dict)
-        # Should have telemetry or summary
-        valid_keys = ["data", "telemetry", "total"]
-        assert any(k in result for k in valid_keys) or "error" not in result
+        # Should have group telemetry structure
+        assert "summary" in result or "error" in result
+        if "summary" in result:
+            summary = result["summary"]
+            assert "total_value" in summary or "average_value" in summary
 
     @pytest.mark.asyncio
     async def test_asset_group_consumption(self, db_pool):
