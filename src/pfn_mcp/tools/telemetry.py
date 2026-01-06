@@ -32,8 +32,17 @@ BUCKET_MINUTES = {
     "1week": 10080,
 }
 
-# TimescaleDB time_bucket intervals
+# TimescaleDB time_bucket intervals (as timedelta for asyncpg compatibility)
 BUCKET_INTERVALS = {
+    "15min": timedelta(minutes=15),
+    "1hour": timedelta(hours=1),
+    "4hour": timedelta(hours=4),
+    "1day": timedelta(days=1),
+    "1week": timedelta(weeks=1),
+}
+
+# Human-readable bucket interval labels for display
+BUCKET_LABELS = {
     "15min": "15 minutes",
     "1hour": "1 hour",
     "4hour": "4 hours",
@@ -498,7 +507,7 @@ async def get_device_telemetry(
             "start": query_start.isoformat(),
             "end": query_end.isoformat(),
             "bucket": selected_bucket,
-            "bucket_interval": bucket_interval,
+            "bucket_interval": BUCKET_LABELS[selected_bucket],
         },
         "data": data_points,
         "point_count": len(data_points),

@@ -11,8 +11,15 @@ from pfn_mcp.tools.telemetry import _resolve_device_id, _resolve_quantity_id
 
 logger = logging.getLogger(__name__)
 
-# Bucket intervals for time_bucket
+# Bucket intervals for time_bucket (as timedelta for asyncpg compatibility)
 BUCKET_INTERVALS = {
+    "1hour": timedelta(hours=1),
+    "1day": timedelta(days=1),
+    "1week": timedelta(weeks=1),
+}
+
+# Human-readable bucket interval labels for display
+BUCKET_LABELS = {
     "1hour": "1 hour",
     "1day": "1 day",
     "1week": "1 week",
@@ -197,7 +204,8 @@ async def get_peak_analysis(
             "device_name": device_map.get(peak_device_id, f"Device {peak_device_id}"),
         })
 
-    # Get overall stats
+    # Get overall stats (different placeholder positions - starts at $4)
+    stats_placeholders = ", ".join(f"${i+4}" for i in range(len(device_ids)))
     stats_query = f"""
         SELECT
             MAX(aggregated_value) as overall_peak,
@@ -207,7 +215,7 @@ async def get_peak_analysis(
         WHERE quantity_id = $1
           AND bucket >= $2
           AND bucket < $3
-          AND device_id IN ({device_placeholders})
+          AND device_id IN ({stats_placeholders})
     """
 
     stats = await db.fetch_one(
