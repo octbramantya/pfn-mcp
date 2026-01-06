@@ -32,21 +32,26 @@ def parse_period(
     - Range: "2025-12-01 to 2025-12-15"
     - Explicit start_date/end_date
 
-    Returns (start, end) datetimes or (None, error_message).
+    Returns (start, end) naive UTC datetimes or (None, error_message).
+    Note: Returns naive datetimes for compatibility with asyncpg and
+    PostgreSQL timestamp without timezone columns.
     """
-    now = datetime.now(UTC)
+    # Use UTC internally, but return naive datetimes for database compatibility
+    now_utc = datetime.now(UTC)
+    # Convert to naive UTC for database queries
+    now = now_utc.replace(tzinfo=None)
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
     # Explicit date range takes precedence
     if start_date:
         try:
-            start_dt = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=UTC)
+            start_dt = datetime.strptime(start_date, "%Y-%m-%d")
         except ValueError:
             return None, f"Invalid start_date format: {start_date}. Use YYYY-MM-DD"
 
         if end_date:
             try:
-                end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=UTC)
+                end_dt = datetime.strptime(end_date, "%Y-%m-%d")
                 # End of day
                 end_dt = end_dt + timedelta(days=1)
             except ValueError:
@@ -86,13 +91,13 @@ def parse_period(
     if match:
         year = int(match.group(1))
         month = int(match.group(2))
-        start_dt = datetime(year, month, 1, tzinfo=UTC)
+        start_dt = datetime(year, month, 1)
 
         # Calculate end of month
         if month == 12:
-            end_dt = datetime(year + 1, 1, 1, tzinfo=UTC)
+            end_dt = datetime(year + 1, 1, 1)
         else:
-            end_dt = datetime(year, month + 1, 1, tzinfo=UTC)
+            end_dt = datetime(year, month + 1, 1)
 
         return start_dt, end_dt
 
@@ -100,10 +105,8 @@ def parse_period(
     match = DATE_RANGE.match(period)
     if match:
         try:
-            start_dt = datetime.strptime(match.group(1), "%Y-%m-%d").replace(
-                tzinfo=UTC
-            )
-            end_dt = datetime.strptime(match.group(2), "%Y-%m-%d").replace(tzinfo=UTC)
+            start_dt = datetime.strptime(match.group(1), "%Y-%m-%d")
+            end_dt = datetime.strptime(match.group(2), "%Y-%m-%d")
             end_dt = end_dt + timedelta(days=1)  # End of day
             return start_dt, end_dt
         except ValueError:

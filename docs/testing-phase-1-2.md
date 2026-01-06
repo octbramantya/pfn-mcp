@@ -1,8 +1,27 @@
 # PFN MCP Server - Phase 1 & 2 Testing
 
-**Test Date:** _______________
-**Tester:** _______________
+**Test Date:** 2026-01-06
+**Tester:** Automated pytest suite
 **MCP Connection:** Local stdio with remote database
+
+## Latest Test Results
+
+**Run:** `pytest tests/ -v`
+**Total:** 77 tests (57 scenarios + 20 datetime unit tests)
+**Passed:** 55 (71%)
+**Failed:** 21 (27%)
+**Skipped:** 1
+
+### Bug Fixes Applied
+- ✅ **pfn_mcp-2uh**: Fixed datetime timezone bug (asyncpg encoding issue)
+- ✅ **pfn_mcp-e9v**: Fixed resolve_device response structure
+- ✅ **pfn_mcp-ij7**: Fixed list_tags test assertion
+- ✅ **pfn_mcp-9d6**: Fixed check_data_freshness test
+
+### Remaining Failures (not datetime related)
+- Schema mismatch: `min_value`/`max_value` columns don't exist in `telemetry_15min_agg`
+- Missing test data for certain tags (process, building)
+- Peak analysis tools reference non-existent columns
 
 ---
 

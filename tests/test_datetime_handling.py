@@ -31,47 +31,52 @@ class TestEnsureUtc:
 
 
 class TestParsePeriod:
-    """Tests for parse_period datetime handling."""
+    """Tests for parse_period datetime handling.
 
-    def test_relative_days_returns_aware(self):
-        """parse_period('7d') should return aware datetimes."""
+    Note: parse_period returns naive UTC datetimes for asyncpg/PostgreSQL
+    compatibility with timestamp without timezone columns.
+    """
+
+    def test_relative_days_returns_naive_utc(self):
+        """parse_period('7d') should return naive UTC datetimes."""
         result = parse_period("7d", None, None)
         assert result[0] is not None
         start, end = result
-        assert start.tzinfo is not None
-        assert end.tzinfo is not None
+        # Should be naive (no tzinfo) for database compatibility
+        assert start.tzinfo is None
+        assert end.tzinfo is None
 
-    def test_relative_months_returns_aware(self):
-        """parse_period('1M') should return aware datetimes."""
+    def test_relative_months_returns_naive_utc(self):
+        """parse_period('1M') should return naive UTC datetimes."""
         result = parse_period("1M", None, None)
         assert result[0] is not None
         start, end = result
-        assert start.tzinfo is not None
-        assert end.tzinfo is not None
+        assert start.tzinfo is None
+        assert end.tzinfo is None
 
-    def test_month_period_returns_aware(self):
-        """parse_period('2025-12') should return aware datetimes."""
+    def test_month_period_returns_naive_utc(self):
+        """parse_period('2025-12') should return naive UTC datetimes."""
         result = parse_period("2025-12", None, None)
         assert result[0] is not None
         start, end = result
-        assert start.tzinfo is not None
-        assert end.tzinfo is not None
+        assert start.tzinfo is None
+        assert end.tzinfo is None
 
-    def test_explicit_dates_returns_aware(self):
-        """parse_period with explicit dates should return aware datetimes."""
+    def test_explicit_dates_returns_naive_utc(self):
+        """parse_period with explicit dates should return naive UTC datetimes."""
         result = parse_period(None, "2025-12-01", "2025-12-15")
         assert result[0] is not None
         start, end = result
-        assert start.tzinfo is not None
-        assert end.tzinfo is not None
+        assert start.tzinfo is None
+        assert end.tzinfo is None
 
-    def test_date_range_returns_aware(self):
-        """parse_period('2025-12-01 to 2025-12-15') should return aware datetimes."""
+    def test_date_range_returns_naive_utc(self):
+        """parse_period('2025-12-01 to 2025-12-15') should return naive UTC datetimes."""
         result = parse_period("2025-12-01 to 2025-12-15", None, None)
         assert result[0] is not None
         start, end = result
-        assert start.tzinfo is not None
-        assert end.tzinfo is not None
+        assert start.tzinfo is None
+        assert end.tzinfo is None
 
 
 class TestDatetimeSubtraction:

@@ -383,8 +383,8 @@ async def get_device_telemetry(
     if error:
         return {"error": error}
 
-    # Determine time range
-    now = datetime.now(UTC)
+    # Determine time range (use naive UTC for database compatibility)
+    now = datetime.now(UTC).replace(tzinfo=None)
     if period:
         delta = parse_period(period)
         if delta is None:
@@ -394,16 +394,18 @@ async def get_device_telemetry(
     elif start_date:
         try:
             query_start = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
-            if not query_start.tzinfo:
-                query_start = query_start.replace(tzinfo=UTC)
+            # Convert to naive UTC for database
+            if query_start.tzinfo:
+                query_start = query_start.astimezone(UTC).replace(tzinfo=None)
         except ValueError:
             return {"error": f"Invalid start_date format: {start_date}"}
 
         if end_date:
             try:
                 query_end = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
-                if not query_end.tzinfo:
-                    query_end = query_end.replace(tzinfo=UTC)
+                # Convert to naive UTC for database
+                if query_end.tzinfo:
+                    query_end = query_end.astimezone(UTC).replace(tzinfo=None)
             except ValueError:
                 return {"error": f"Invalid end_date format: {end_date}"}
         else:
@@ -589,7 +591,8 @@ async def get_quantity_stats(
     if delta is None:
         return {"error": f"Invalid period format: {period}. Use e.g. 24h, 7d, 30d"}
 
-    now = datetime.now(UTC)
+    # Use naive UTC for database compatibility
+    now = datetime.now(UTC).replace(tzinfo=None)
     query_start = now - delta
     query_end = now
 
