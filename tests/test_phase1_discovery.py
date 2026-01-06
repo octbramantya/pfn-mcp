@@ -184,13 +184,17 @@ class TestDataAvailability:
         assert "earliest" in result or "latest" in result or "range" in result or "device" in result
 
     @pytest.mark.asyncio
-    async def test_check_offline_meters(self, db_pool):
+    async def test_check_offline_meters(self, db_pool, sample_tenant):
         """Scenario #14: Which meters are currently offline?"""
-        result = await check_data_freshness(hours_threshold=1)
+        # Check freshness for all devices in tenant with 1-hour threshold
+        result = await check_data_freshness(
+            tenant_id=sample_tenant["id"],
+            hours_threshold=1
+        )
 
         assert isinstance(result, dict)
-        # Should have device status info
-        assert "devices" in result or "summary" in result or "stale" in result or "total" in result
+        # Should have device status info (devices list with status_summary)
+        assert "devices" in result or "status_summary" in result or "device_count" in result
 
     @pytest.mark.asyncio
     async def test_check_tenant_data_freshness(self, db_pool, sample_tenant):
@@ -198,8 +202,8 @@ class TestDataAvailability:
         result = await check_data_freshness(tenant_id=sample_tenant["id"])
 
         assert isinstance(result, dict)
-        # Should have freshness info for tenant
-        assert "devices" in result or "summary" in result or "total" in result
+        # Should have freshness info for tenant (devices list with status_summary)
+        assert "devices" in result or "status_summary" in result or "device_count" in result
 
     @pytest.mark.asyncio
     async def test_get_tenant_summary(self, db_pool, sample_tenant):

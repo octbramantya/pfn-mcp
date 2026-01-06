@@ -22,8 +22,8 @@ class TestTagDiscovery:
         result = await list_tags()
 
         assert isinstance(result, dict)
-        # Should have tags list
-        assert "tags" in result or "data" in result or "keys" in result
+        # Should have tags structure (categories, tags_by_category, or total_tags)
+        assert "tags_by_category" in result or "categories" in result or "total_tags" in result
 
     @pytest.mark.asyncio
     async def test_list_process_tag_values(self, db_pool):
