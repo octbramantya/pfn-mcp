@@ -2,36 +2,20 @@
 title: PFN Energy Tools
 description: Tenant-scoped energy monitoring tools powered by PFN MCP
 author: PFN Team
-version: 0.2.0
+version: 0.3.0
 license: MIT
 
-This tool provides access to Valkyrie energy monitoring data with automatic
-tenant scoping based on the user's Keycloak group membership.
-
-FEATURES:
-- Automatic tenant detection from Keycloak groups
-- Superuser support: users in "superuser" group have access to all tenants
-- Tenant caching for improved performance
+Thin wrapper that injects tenant context into MCP tool calls.
+See docs/thin-wrapper.md for architecture details.
 
 INSTALLATION:
 1. Open WebUI Admin → Workspace → Tools → Add Tool
 2. Paste this entire file
-3. Configure Valves (admin settings) with Keycloak and MCP connection details
+3. Configure Valves with Keycloak and MCP connection details
 4. Save
-
-USAGE (Regular Users):
-- "Show my devices" → Lists devices for user's tenant
-- "What's the power consumption today?" → Gets consumption data
-- "Show electricity cost this month" → Gets cost breakdown
-
-USAGE (Superusers):
-- "Show all devices" → Lists devices across all tenants
-- "Show devices for PRS" → Lists devices for specific tenant
-- "Show electricity cost for IOP" → Gets cost data for specific tenant
 """
 
 import json
-import asyncio
 from typing import Optional, Any, Callable
 from urllib.request import urlopen, Request
 from urllib.parse import urlencode
@@ -39,37 +23,15 @@ from pydantic import BaseModel, Field
 
 
 class Tools:
-    """PFN Energy Tools - Tenant-scoped access to Valkyrie energy data."""
+    """PFN Energy Tools - Thin wrapper with tenant injection."""
 
     class Valves(BaseModel):
-        """Admin configuration (set in Open WebUI Admin Panel)."""
-        # Keycloak settings for tenant resolution
-        KEYCLOAK_URL: str = Field(
-            default="http://keycloak:8080",
-            description="Keycloak server URL (use Docker network name in container)"
-        )
-        KEYCLOAK_REALM: str = Field(
-            default="pfn",
-            description="Keycloak realm containing users and tenant groups"
-        )
-        KEYCLOAK_ADMIN_USER: str = Field(
-            default="admin",
-            description="Keycloak admin username for group lookups"
-        )
-        KEYCLOAK_ADMIN_PASSWORD: str = Field(
-            default="admin",
-            description="Keycloak admin password"
-        )
-
-        # PFN MCP settings
-        MCP_SERVER_URL: str = Field(
-            default="http://localhost:8000",
-            description="PFN MCP server URL"
-        )
-
-    class UserValves(BaseModel):
-        """Per-user configuration (optional)."""
-        pass
+        """Admin configuration."""
+        KEYCLOAK_URL: str = Field(default="http://keycloak:8080")
+        KEYCLOAK_REALM: str = Field(default="pfn")
+        KEYCLOAK_ADMIN_USER: str = Field(default="admin")
+        KEYCLOAK_ADMIN_PASSWORD: str = Field(default="admin")
+        MCP_SERVER_URL: str = Field(default="http://localhost:8000")
 
     def __init__(self):
         self.valves = self.Valves()
@@ -77,14 +39,12 @@ class Tools:
         self._kc_token_expiry: float = 0
 
     # =========================================================================
-    # TENANT RESOLUTION (Core functionality)
+    # TENANT RESOLUTION
     # =========================================================================
 
     def _get_keycloak_token(self) -> str:
         """Get Keycloak admin token (cached)."""
         import time
-
-        # Return cached token if still valid (with 60s buffer)
         if self._kc_token and time.time() < self._kc_token_expiry - 60:
             return self._kc_token
 
@@ -103,48 +63,26 @@ class Tools:
             self._kc_token_expiry = time.time() + result.get("expires_in", 300)
             return self._kc_token
 
-    def _get_user_groups_from_keycloak(self, oauth_sub: str) -> list[str]:
-        """Fetch user groups from Keycloak by oauth_sub (Keycloak user ID)."""
+    def _get_user_groups(self, oauth_sub: str) -> list[str]:
+        """Fetch user groups from Keycloak."""
         token = self._get_keycloak_token()
         url = f"{self.valves.KEYCLOAK_URL}/admin/realms/{self.valves.KEYCLOAK_REALM}/users/{oauth_sub}/groups"
         req = Request(url, headers={"Authorization": f"Bearer {token}"})
-
         with urlopen(req, timeout=10) as resp:
-            groups = json.loads(resp.read())
-            return [g["name"] for g in groups]
+            return [g["name"] for g in json.loads(resp.read())]
 
-    def _get_tenant_context(self, __user__: dict) -> dict:
+    def _get_tenant_code(self, __user__: dict) -> str | None:
         """
-        Get tenant context for the current user.
-
-        Uses cached value from user.info if available, otherwise fetches
-        from Keycloak and caches for future requests.
-
-        Superuser Detection:
-            If user is in "superuser" group, tenant_code is None (all-tenant access).
+        Get tenant_code for MCP calls.
 
         Returns:
-            {
-                "tenant_code": str or None (None for superusers),
-                "groups": list[str],
-                "user_id": str,
-                "user_email": str,
-                "is_superuser": bool,
-                "source": "cached" | "keycloak" | "error",
-                "error": str or None
-            }
+            - tenant_code string for regular users
+            - None for superusers (all tenants)
         """
-        result = {
-            "tenant_code": None,
-            "groups": [],
-            "user_id": __user__.get("id"),
-            "user_email": __user__.get("email"),
-            "is_superuser": False,
-            "source": None,
-            "error": None
-        }
+        if __user__ is None:
+            return None
 
-        # Try cached value first
+        # Check cache first
         info = __user__.get("info") or {}
         if isinstance(info, str):
             try:
@@ -152,22 +90,12 @@ class Tools:
             except:
                 info = {}
 
-        # Check cached superuser status
         if info.get("is_superuser"):
-            result["is_superuser"] = True
-            result["tenant_code"] = None  # Superusers have no tenant filter
-            result["groups"] = info.get("keycloak_groups", [])
-            result["source"] = "cached"
-            return result
-
-        # Check cached tenant_code (regular user)
+            return None
         if info.get("tenant_code"):
-            result["tenant_code"] = info["tenant_code"]
-            result["groups"] = info.get("keycloak_groups", [])
-            result["source"] = "cached"
-            return result
+            return info["tenant_code"]
 
-        # Fetch from Keycloak - oauth_sub is nested in oauth.oidc.sub
+        # Fetch from Keycloak
         oauth = __user__.get("oauth") or {}
         if isinstance(oauth, str):
             try:
@@ -176,356 +104,181 @@ class Tools:
                 oauth = {}
         oauth_sub = oauth.get("oidc", {}).get("sub")
         if not oauth_sub:
-            result["source"] = "error"
-            result["error"] = "No oauth_sub in user.oauth.oidc.sub - not an OAuth user?"
-            return result
+            return None
 
         try:
-            groups = self._get_user_groups_from_keycloak(oauth_sub)
-
-            if not groups:
-                result["source"] = "keycloak"
-                result["error"] = "User has no groups in Keycloak"
-                return result
-
-            result["groups"] = groups
-
-            # Check for superuser group - grants all-tenant access
+            groups = self._get_user_groups(oauth_sub)
             if "superuser" in groups:
-                result["is_superuser"] = True
-                result["tenant_code"] = None  # None = all tenants
-                result["source"] = "keycloak"
+                self._cache_user_info(__user__, None, True, groups)
+                return None
+            tenant_code = groups[0] if groups else None
+            if tenant_code:
+                self._cache_user_info(__user__, tenant_code, False, groups)
+            return tenant_code
+        except:
+            return None
 
-                # Cache superuser status
-                try:
-                    from open_webui.models.users import Users
-                    new_info = info.copy()
-                    new_info["is_superuser"] = True
-                    new_info["tenant_code"] = None
-                    new_info["keycloak_groups"] = groups
-                    Users.update_user_by_id(__user__["id"], {"info": new_info})
-                except Exception:
-                    pass  # Non-fatal
-
-                return result
-
-            # Regular user - first non-superuser group = tenant
-            tenant_groups = [g for g in groups if g != "superuser"]
-            if not tenant_groups:
-                result["source"] = "keycloak"
-                result["error"] = "User has no tenant groups in Keycloak"
-                return result
-
-            tenant_code = tenant_groups[0]
-            result["tenant_code"] = tenant_code
-            result["source"] = "keycloak"
-
-            # Cache in user.info for future requests
-            try:
-                from open_webui.models.users import Users
-                new_info = info.copy()
-                new_info["is_superuser"] = False
-                new_info["tenant_code"] = tenant_code
-                new_info["keycloak_groups"] = groups
-                Users.update_user_by_id(__user__["id"], {"info": new_info})
-            except Exception:
-                pass  # Non-fatal
-
-            return result
-
-        except Exception as e:
-            result["source"] = "error"
-            result["error"] = f"Keycloak error: {str(e)}"
-            return result
-
-    def _require_tenant(self, __user__: dict) -> tuple[str | None, dict]:
-        """
-        Get tenant_code or raise descriptive error (unless superuser).
-
-        Returns: (tenant_code, full_context)
-                 tenant_code is None for superusers (all-tenant access)
-        Raises: ValueError if regular user has no tenant assigned
-        """
-        ctx = self._get_tenant_context(__user__)
-
-        # Superusers get None tenant_code (all tenants)
-        if ctx.get("is_superuser"):
-            return None, ctx
-
-        # Regular users must have a tenant
-        if not ctx["tenant_code"]:
-            error_msg = ctx.get("error", "Unknown error")
-            raise ValueError(f"Cannot determine tenant: {error_msg}")
-
-        return ctx["tenant_code"], ctx
-
-    def _resolve_effective_tenant(
-        self,
-        ctx: dict,
-        tenant_override: str = ""
-    ) -> tuple[str | None, str | None]:
-        """
-        Resolve effective tenant, handling superuser overrides.
-
-        Args:
-            ctx: Context from _get_tenant_context()
-            tenant_override: Optional tenant specified by user (superuser only)
-
-        Returns: (effective_tenant, error_message)
-                 effective_tenant is None for superusers viewing all tenants
-        """
-        if tenant_override:
-            # User requested specific tenant
-            if not ctx.get("is_superuser"):
-                # Regular user trying to access different tenant
-                if tenant_override != ctx["tenant_code"]:
-                    return None, f"Access denied to tenant: {tenant_override}"
-            return tenant_override, None
-
-        # Use default: None for superuser (all tenants), their tenant for regular user
-        return ctx["tenant_code"], None
+    def _cache_user_info(self, __user__: dict, tenant_code: str | None, is_superuser: bool, groups: list):
+        """Cache tenant info in user.info."""
+        try:
+            from open_webui.models.users import Users
+            info = __user__.get("info") or {}
+            if isinstance(info, str):
+                info = json.loads(info) if info else {}
+            info["tenant_code"] = tenant_code
+            info["is_superuser"] = is_superuser
+            info["keycloak_groups"] = groups
+            Users.update_user_by_id(__user__["id"], {"info": info})
+        except:
+            pass
 
     # =========================================================================
-    # MCP CLIENT (Calls to PFN MCP server)
+    # MCP CLIENT
     # =========================================================================
 
-    async def _call_mcp(self, tool_name: str, params: dict) -> dict:
-        """
-        Call PFN MCP server tool.
-
-        In production, this would use proper MCP client.
-        For prototype, uses HTTP call to SSE server.
-        """
-        # TODO: Replace with actual MCP client call
-        # For now, return mock response
-        return {
+    async def _call_mcp(self, tool_name: str, params: dict) -> str:
+        """Call MCP tool and return JSON response."""
+        # TODO: Replace with actual MCP client
+        return json.dumps({
             "tool": tool_name,
             "params": params,
-            "status": "mock_response",
-            "note": "Replace with actual MCP client in production"
-        }
+            "status": "mock_response"
+        })
 
     # =========================================================================
-    # PUBLIC TOOLS (Exposed to LLM)
+    # TENANT-AWARE TOOLS (inject tenant)
     # =========================================================================
 
-    async def get_my_tenant(
-        self,
-        __user__: dict = None,
-        __event_emitter__: Callable[[dict], Any] = None,
-    ) -> str:
-        """
-        Get the current user's tenant information.
+    async def list_devices(self, search: str = "", __user__: dict = None) -> str:
+        """List energy monitoring devices."""
+        tenant = self._get_tenant_code(__user__)
+        return await self._call_mcp("list_devices", {"tenant": tenant, "search": search})
 
-        Shows which tenant (company/site) the user belongs to based on their
-        Keycloak group membership. Superusers have access to all tenants.
+    async def resolve_device(self, search: str, __user__: dict = None) -> str:
+        """Resolve device name to ID with match confidence."""
+        tenant = self._get_tenant_code(__user__)
+        return await self._call_mcp("resolve_device", {"tenant": tenant, "search": search})
 
-        :return: Tenant information including tenant code, superuser status, and group memberships
-        """
-        if __user__ is None:
-            return json.dumps({"error": "No user context available"})
+    async def get_device_telemetry(self, device: str, quantity: str = "power", period: str = "7d", __user__: dict = None) -> str:
+        """Get time-series telemetry data for a device."""
+        tenant = self._get_tenant_code(__user__)
+        return await self._call_mcp("get_device_telemetry", {"tenant": tenant, "device_name": device, "quantity_search": quantity, "period": period})
 
-        ctx = self._get_tenant_context(__user__)
+    async def get_quantity_stats(self, device_id: int, quantity: str = "", period: str = "30d", __user__: dict = None) -> str:
+        """Get data availability stats for a device quantity."""
+        tenant = self._get_tenant_code(__user__)
+        return await self._call_mcp("get_quantity_stats", {"tenant": tenant, "device_id": device_id, "quantity_search": quantity, "period": period})
 
-        return json.dumps({
-            "tenant_code": ctx["tenant_code"],
-            "is_superuser": ctx.get("is_superuser", False),
-            "access": "all tenants" if ctx.get("is_superuser") else ctx["tenant_code"],
-            "groups": ctx["groups"],
-            "user_email": ctx["user_email"],
-            "source": ctx["source"],
-            "error": ctx["error"]
-        }, indent=2)
+    async def find_devices_by_quantity(self, quantity: str, __user__: dict = None) -> str:
+        """Find devices that have data for a specific quantity."""
+        tenant = self._get_tenant_code(__user__)
+        return await self._call_mcp("find_devices_by_quantity", {"tenant": tenant, "quantity_search": quantity})
 
-    async def list_devices(
-        self,
-        search: str = "",
-        tenant: str = "",
-        __user__: dict = None,
-        __event_emitter__: Callable[[dict], Any] = None,
-    ) -> str:
-        """
-        List energy monitoring devices.
+    async def check_data_freshness(self, hours_threshold: int = 24, __user__: dict = None) -> str:
+        """Check data freshness for tenant devices."""
+        tenant = self._get_tenant_code(__user__)
+        return await self._call_mcp("check_data_freshness", {"tenant": tenant, "hours_threshold": hours_threshold})
 
-        Shows all power meters and monitoring devices available to the user.
-        Regular users see only their tenant's devices.
-        Superusers see all tenants by default, or can filter to a specific tenant.
+    async def get_tenant_summary(self, __user__: dict = None) -> str:
+        """Get comprehensive tenant overview."""
+        tenant = self._get_tenant_code(__user__)
+        return await self._call_mcp("get_tenant_summary", {"tenant_name": tenant})
 
-        :param search: Optional search term to filter devices by name
-        :param tenant: Optional tenant filter (superusers only, ignored for regular users)
-        :return: List of devices with their details
-        """
-        if __user__ is None:
-            return json.dumps({"error": "No user context available"})
+    async def get_electricity_cost(self, period: str = "7d", breakdown: str = "none", __user__: dict = None) -> str:
+        """Get electricity cost for tenant."""
+        tenant = self._get_tenant_code(__user__)
+        return await self._call_mcp("get_electricity_cost", {"tenant": tenant, "period": period, "breakdown": breakdown})
 
-        try:
-            tenant_code, ctx = self._require_tenant(__user__)
-        except ValueError as e:
-            return json.dumps({"error": str(e)})
+    async def get_electricity_cost_breakdown(self, device: str, period: str = "7d", group_by: str = "shift_rate", __user__: dict = None) -> str:
+        """Get detailed electricity cost breakdown for a device."""
+        tenant = self._get_tenant_code(__user__)
+        return await self._call_mcp("get_electricity_cost_breakdown", {"tenant": tenant, "device": device, "period": period, "group_by": group_by})
 
-        # Resolve effective tenant (handles superuser overrides)
-        effective_tenant, error = self._resolve_effective_tenant(ctx, tenant)
-        if error:
-            return json.dumps({"error": error})
+    async def get_electricity_cost_ranking(self, period: str = "30d", metric: str = "cost", limit: int = 10, __user__: dict = None) -> str:
+        """Rank devices by electricity cost within tenant."""
+        tenant = self._get_tenant_code(__user__)
+        return await self._call_mcp("get_electricity_cost_ranking", {"tenant": tenant, "period": period, "metric": metric, "limit": limit})
 
-        # Call MCP with tenant filter (None = all tenants for superuser)
-        result = await self._call_mcp("list_devices", {
-            "tenant_code": effective_tenant,
-            "search": search
-        })
+    async def compare_electricity_periods(self, period1: str, period2: str, device: str = "", __user__: dict = None) -> str:
+        """Compare electricity costs between two periods."""
+        tenant = self._get_tenant_code(__user__)
+        return await self._call_mcp("compare_electricity_periods", {"tenant": tenant, "device": device, "period1": period1, "period2": period2})
 
-        return json.dumps({
-            "tenant": effective_tenant or "ALL",
-            "is_superuser": ctx.get("is_superuser", False),
-            "search": search or "(all)",
-            "result": result
-        }, indent=2)
+    async def list_tags(self, tag_key: str = "", __user__: dict = None) -> str:
+        """List available device tags for grouping."""
+        tenant = self._get_tenant_code(__user__)
+        return await self._call_mcp("list_tags", {"tenant": tenant, "tag_key": tag_key})
 
-    async def get_consumption(
-        self,
-        period: str = "today",
-        device: str = "",
-        tenant: str = "",
-        __user__: dict = None,
-        __event_emitter__: Callable[[dict], Any] = None,
-    ) -> str:
-        """
-        Get energy consumption data.
+    async def list_tag_values(self, tag_key: str, __user__: dict = None) -> str:
+        """List values for a tag key with device counts."""
+        tenant = self._get_tenant_code(__user__)
+        return await self._call_mcp("list_tag_values", {"tenant": tenant, "tag_key": tag_key})
 
-        Shows electricity consumption data for a specified time period.
-        Can be filtered to a specific device or show total for all devices.
-        Superusers can query across all tenants or filter to a specific tenant.
+    async def get_group_telemetry(self, tag_key: str, tag_value: str, period: str = "7d", breakdown: str = "none", __user__: dict = None) -> str:
+        """Get aggregated telemetry for a device group."""
+        tenant = self._get_tenant_code(__user__)
+        return await self._call_mcp("get_group_telemetry", {"tenant": tenant, "tag_key": tag_key, "tag_value": tag_value, "period": period, "breakdown": breakdown})
 
-        :param period: Time period - "today", "yesterday", "7d", "30d", "this_month"
-        :param device: Optional device name to filter (empty = all devices)
-        :param tenant: Optional tenant filter (superusers only)
-        :return: Consumption data in kWh with breakdown
-        """
-        if __user__ is None:
-            return json.dumps({"error": "No user context available"})
+    async def compare_groups(self, groups: str, period: str = "7d", __user__: dict = None) -> str:
+        """Compare consumption across groups. Format: 'key1:value1,key2:value2'"""
+        tenant = self._get_tenant_code(__user__)
+        group_list = [{"tag_key": g.split(":")[0], "tag_value": g.split(":")[1]} for g in groups.split(",") if ":" in g]
+        return await self._call_mcp("compare_groups", {"tenant": tenant, "groups": group_list, "period": period})
 
-        try:
-            tenant_code, ctx = self._require_tenant(__user__)
-        except ValueError as e:
-            return json.dumps({"error": str(e)})
+    async def get_peak_analysis(self, quantity: str = "power", period: str = "7d", top_n: int = 10, __user__: dict = None) -> str:
+        """Find peak values with timestamps for tenant devices."""
+        tenant = self._get_tenant_code(__user__)
+        return await self._call_mcp("get_peak_analysis", {"tenant": tenant, "quantity_search": quantity, "period": period, "top_n": top_n})
 
-        # Resolve effective tenant (handles superuser overrides)
-        effective_tenant, error = self._resolve_effective_tenant(ctx, tenant)
-        if error:
-            return json.dumps({"error": error})
+    # =========================================================================
+    # GLOBAL TOOLS (no tenant injection)
+    # =========================================================================
 
-        result = await self._call_mcp("get_device_telemetry", {
-            "tenant_code": effective_tenant,
-            "device": device,
-            "period": period,
-            "quantity": "Active Energy Delivered"
-        })
+    async def list_tenants(self, __user__: dict = None) -> str:
+        """List all tenants."""
+        return await self._call_mcp("list_tenants", {})
 
-        return json.dumps({
-            "tenant": effective_tenant or "ALL",
-            "is_superuser": ctx.get("is_superuser", False),
-            "period": period,
-            "device": device or "(all)",
-            "result": result
-        }, indent=2)
+    async def list_quantities(self, search: str = "", category: str = "", __user__: dict = None) -> str:
+        """List available measurement quantities."""
+        return await self._call_mcp("list_quantities", {"search": search, "category": category})
 
-    async def get_electricity_cost(
-        self,
-        period: str = "this_month",
-        breakdown: str = "none",
-        tenant: str = "",
-        __user__: dict = None,
-        __event_emitter__: Callable[[dict], Any] = None,
-    ) -> str:
-        """
-        Get electricity cost data.
+    async def list_device_quantities(self, device: str, search: str = "", __user__: dict = None) -> str:
+        """List quantities available for a device."""
+        return await self._call_mcp("list_device_quantities", {"device_name": device, "search": search})
 
-        Shows electricity costs with optional breakdown by shift, rate, or device.
-        Superusers can query across all tenants or filter to a specific tenant.
-
-        :param period: Time period - "today", "7d", "30d", "this_month", "last_month"
-        :param breakdown: Breakdown type - "none", "shift", "rate", "device"
-        :param tenant: Optional tenant filter (superusers only)
-        :return: Cost data in IDR with breakdown if requested
-        """
-        if __user__ is None:
-            return json.dumps({"error": "No user context available"})
-
-        try:
-            tenant_code, ctx = self._require_tenant(__user__)
-        except ValueError as e:
-            return json.dumps({"error": str(e)})
-
-        # Resolve effective tenant (handles superuser overrides)
-        effective_tenant, error = self._resolve_effective_tenant(ctx, tenant)
-        if error:
-            return json.dumps({"error": error})
-
-        result = await self._call_mcp("get_electricity_cost", {
-            "tenant_code": effective_tenant,
-            "period": period,
-            "breakdown": breakdown
-        })
-
-        return json.dumps({
-            "tenant": effective_tenant or "ALL",
-            "is_superuser": ctx.get("is_superuser", False),
-            "period": period,
-            "breakdown": breakdown,
-            "result": result
-        }, indent=2)
-
-    async def compare_devices(
-        self,
-        devices: str,
-        period: str = "7d",
-        metric: str = "consumption",
-        tenant: str = "",
-        __user__: dict = None,
-        __event_emitter__: Callable[[dict], Any] = None,
-    ) -> str:
-        """
-        Compare multiple devices side by side.
-
-        Shows consumption or cost comparison between specified devices.
-        Superusers can compare devices across all tenants or filter to a specific tenant.
-
-        :param devices: Comma-separated device names to compare
-        :param period: Time period for comparison
-        :param metric: What to compare - "consumption" or "cost"
-        :param tenant: Optional tenant filter (superusers only)
-        :return: Comparison data for the specified devices
-        """
-        if __user__ is None:
-            return json.dumps({"error": "No user context available"})
-
-        try:
-            tenant_code, ctx = self._require_tenant(__user__)
-        except ValueError as e:
-            return json.dumps({"error": str(e)})
-
-        # Resolve effective tenant (handles superuser overrides)
-        effective_tenant, error = self._resolve_effective_tenant(ctx, tenant)
-        if error:
-            return json.dumps({"error": error})
-
+    async def compare_device_quantities(self, devices: str, search: str = "", __user__: dict = None) -> str:
+        """Compare quantities across devices. Comma-separated names."""
         device_list = [d.strip() for d in devices.split(",") if d.strip()]
+        return await self._call_mcp("compare_device_quantities", {"device_names": device_list, "search": search})
 
-        if len(device_list) < 2:
-            return json.dumps({"error": "Please specify at least 2 devices to compare"})
+    async def get_device_data_range(self, device: str, __user__: dict = None) -> str:
+        """Get time range of available data for a device."""
+        return await self._call_mcp("get_device_data_range", {"device_name": device})
 
-        result = await self._call_mcp("compare_device_quantities", {
-            "tenant_code": effective_tenant,
-            "devices": device_list,
-            "period": period,
-            "metric": metric
-        })
+    async def get_device_info(self, device: str, __user__: dict = None) -> str:
+        """Get detailed device information including metadata."""
+        return await self._call_mcp("get_device_info", {"device_name": device})
+
+    # =========================================================================
+    # HELPER TOOL
+    # =========================================================================
+
+    async def get_my_tenant(self, __user__: dict = None) -> str:
+        """Get current user's tenant information."""
+        if __user__ is None:
+            return json.dumps({"error": "No user context"})
+
+        tenant = self._get_tenant_code(__user__)
+        info = __user__.get("info") or {}
+        if isinstance(info, str):
+            try:
+                info = json.loads(info)
+            except:
+                info = {}
 
         return json.dumps({
-            "tenant": effective_tenant or "ALL",
-            "is_superuser": ctx.get("is_superuser", False),
-            "devices": device_list,
-            "period": period,
-            "metric": metric,
-            "result": result
+            "tenant_code": tenant,
+            "is_superuser": info.get("is_superuser", False),
+            "access": "all tenants" if info.get("is_superuser") else tenant,
+            "groups": info.get("keycloak_groups", [])
         }, indent=2)
