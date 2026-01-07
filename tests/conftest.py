@@ -125,3 +125,20 @@ async def device_with_modbus_metadata(db_pool, sample_tenant):
     """, sample_tenant["id"])
     # This fixture might return None if no device has metadata
     return result
+
+
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
+async def device_with_energy_data(db_pool, sample_tenant):
+    """Get a device that has energy data in daily_energy_cost_summary."""
+    result = await db.fetch_one("""
+        SELECT d.id, d.display_name, d.device_code, d.tenant_id
+        FROM devices d
+        WHERE d.tenant_id = $1 AND d.is_active = true
+        AND EXISTS (
+            SELECT 1 FROM daily_energy_cost_summary decs
+            WHERE decs.device_id = d.id
+            AND decs.daily_bucket >= NOW() - INTERVAL '30 days'
+        )
+        LIMIT 1
+    """, sample_tenant["id"])
+    return result
