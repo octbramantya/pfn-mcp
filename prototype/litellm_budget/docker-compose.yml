@@ -32,6 +32,7 @@ services:
     container_name: proto-litellm
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-sk-master-key}
       - LITELLM_DATABASE_URL=postgresql://litellm:litellm@litellm-db:5432/litellm
     volumes:

@@ -1,19 +1,8 @@
 # LiteLLM Proxy Configuration
-# Prototype: Per-team budget enforcement
+# Integrated with Open WebUI + Keycloak prototype
 
 model_list:
-  # OpenAI models for development/testing
-  - model_name: gpt-4o
-    litellm_params:
-      model: gpt-4o
-      api_key: os.environ/OPENAI_API_KEY
-
-  - model_name: gpt-4o-mini
-    litellm_params:
-      model: gpt-4o-mini
-      api_key: os.environ/OPENAI_API_KEY
-
-  # Claude models
+  # Claude Sonnet - primary model
   - model_name: claude-sonnet
     litellm_params:
       model: claude-sonnet-4-20250514
@@ -21,7 +10,7 @@ model_list:
 
 litellm_settings:
   # Request logging for debugging
-  set_verbose: true
+  set_verbose: false
 
   # Upper bound for key generation requests
   upperbound_key_generate_params:

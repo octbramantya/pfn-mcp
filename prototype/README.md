@@ -18,6 +18,15 @@ The `pfn_tool_wrapper.py` implements a **first-request lazy-loading** pattern:
 2. Cache tenant info in `user.info` JSON field
 3. Subsequent calls use cached value
 
+## Stack
+
+| Service | Purpose |
+|---------|---------|
+| **Open WebUI** | Chat interface |
+| **Keycloak** | SSO / OAuth provider |
+| **LiteLLM** | Claude API proxy with budget enforcement |
+| **PFN MCP** | Energy data tools (SSE transport) |
+
 ## Files
 
 | File | Description |
@@ -26,27 +35,45 @@ The `pfn_tool_wrapper.py` implements a **first-request lazy-loading** pattern:
 | `sync_keycloak_groups.py` | Alternative: Background sync script (cron) |
 | `tenant_aware_tool.py` | Simplified example of lazy-loading pattern |
 | `user_context_inspector.py` | Debug tool to inspect `__user__` dict |
-| `docker-compose.yml` | Local dev setup: Open WebUI + Keycloak |
+| `docker-compose.yml` | Full stack: Open WebUI + Keycloak + LiteLLM |
+| `litellm-config.yaml` | LiteLLM model configuration (Claude) |
 
 ## Quick Start
 
 ```bash
-# 1. Start services
+# 1. Copy environment file and configure
+cp .env.example .env
+# Edit .env:
+#   - ANTHROPIC_API_KEY=sk-ant-...
+#   - LITELLM_MASTER_KEY=sk-... (generate random)
+#   - Other secrets...
+
+# 2. Start services
 docker compose up -d
 
-# 2. Add host entry (macOS - required for OAuth)
-echo "127.0.0.1 host.docker.internal" | sudo tee -a /etc/hosts
+# 3. Verify LiteLLM is running
+curl http://localhost:4000/health/liveliness
 
-# 3. Configure Keycloak (automated)
-# Get token
-KC_TOKEN=$(curl -s -X POST "http://localhost:8080/realms/master/protocol/openid-connect/token" \
-  -d "username=admin&password=admin&grant_type=password&client_id=admin-cli" | jq -r '.access_token')
+# 4. Test Claude model
+curl http://localhost:4000/v1/chat/completions \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "claude-sonnet", "messages": [{"role": "user", "content": "Hello"}]}'
 
-# Create realm, groups, client, user (see full script in docs)
-
-# 4. Access Open WebUI
+# 5. Access Open WebUI
 open http://localhost:3000
+# Login via Keycloak, select claude-sonnet model
 ```
+
+### VPS Deployment
+
+Services are exposed on localhost only. Use Caddy/nginx for HTTPS:
+
+| Service | Internal | External |
+|---------|----------|----------|
+| Open WebUI | 127.0.0.1:3000 | https://chat.forsanusa.id |
+| Keycloak | 127.0.0.1:8080 | https://auth.forsanusa.id |
+| LiteLLM | 127.0.0.1:4000 | (internal only) |
 
 ## Using the PFN Tool Wrapper
 
