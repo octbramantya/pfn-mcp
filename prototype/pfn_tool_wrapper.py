@@ -270,6 +270,10 @@ class Tools:
             params["slave_id"] = slave_id
         return await self._call_mcp("get_device_info", params)
 
+    async def search_tags(self, search: str, limit: int = 10, __user__: dict = None) -> str:
+        """Search for tags by value or key."""
+        return await self._call_mcp("search_tags", {"search": search, "limit": limit})
+
     # =========================================================================
     # HELPER TOOL
     # =========================================================================

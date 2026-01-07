@@ -446,6 +446,24 @@ tools:
         description: "Tag key to list values for (e.g., 'process', 'building')"
         required: true
 
+  - name: search_tags
+    tenant_aware: false
+    description: >-
+      Search for device tags by value or key.
+      Finds tags where tag_value or tag_key matches the search term.
+      Use when you don't know which tag_key a value belongs to.
+      Returns matching tag key/value pairs ranked by match quality.
+      Example: search "PRS" to find tenant=PRS tag.
+    params:
+      - name: search
+        type: string
+        description: "Search term to match against tag_value and tag_key"
+        required: true
+      - name: limit
+        type: integer
+        description: "Maximum results to return (default: 10)"
+        default: 10
+
   - name: get_group_telemetry
     tenant_aware: true
     description: >-

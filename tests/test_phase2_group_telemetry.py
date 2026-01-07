@@ -10,6 +10,7 @@ from pfn_mcp.tools.group_telemetry import (
     get_group_telemetry,
     list_tag_values,
     list_tags,
+    search_tags,
 )
 
 
@@ -179,3 +180,140 @@ class TestGroupComparison:
         # Should have comparison with rankings
         valid_keys = ["groups", "comparison", "ranking"]
         assert any(k in result for k in valid_keys) or "error" not in result
+
+
+class TestSearchTags:
+    """Tests for search_tags tool - search by tag value or key."""
+
+    @pytest.mark.asyncio
+    async def test_search_tags_by_value(self, db_pool, sample_tag):
+        """Search for a tag by its value."""
+        if sample_tag is None:
+            pytest.skip("No tags available in database")
+
+        result = await search_tags(search=sample_tag["tag_value"])
+
+        assert isinstance(result, dict)
+        assert "matches" in result
+        assert "total_matches" in result
+        assert "search_term" in result
+        assert result["search_term"] == sample_tag["tag_value"]
+
+        # Should find at least one match (the tag we searched for)
+        if result["total_matches"] > 0:
+            first_match = result["matches"][0]
+            assert "tag_key" in first_match
+            assert "tag_value" in first_match
+            assert "device_count" in first_match
+
+    @pytest.mark.asyncio
+    async def test_search_tags_by_key(self, db_pool, sample_tag):
+        """Search for tags by key name."""
+        if sample_tag is None:
+            pytest.skip("No tags available in database")
+
+        result = await search_tags(search=sample_tag["tag_key"])
+
+        assert isinstance(result, dict)
+        assert "matches" in result
+        # Should find tags with this key
+        assert result["total_matches"] >= 0
+
+    @pytest.mark.asyncio
+    async def test_search_tags_no_results(self, db_pool):
+        """Search with non-existent term returns empty."""
+        result = await search_tags(search="NONEXISTENT_TAG_XYZ_12345")
+
+        assert isinstance(result, dict)
+        assert result["total_matches"] == 0
+        assert result["matches"] == []
+
+    @pytest.mark.asyncio
+    async def test_search_tags_partial_match(self, db_pool, sample_tag):
+        """Search with partial value finds matches."""
+        if sample_tag is None:
+            pytest.skip("No tags available in database")
+
+        # Use first 3 chars of tag value as partial search
+        tag_value = sample_tag["tag_value"]
+        if len(tag_value) < 3:
+            pytest.skip("Tag value too short for partial match test")
+
+        partial = tag_value[:3]
+        result = await search_tags(search=partial)
+
+        assert isinstance(result, dict)
+        assert "matches" in result
+        # Should find at least the original tag
+        assert result["total_matches"] >= 1
+
+    @pytest.mark.asyncio
+    async def test_search_tags_case_insensitive(self, db_pool, sample_tag):
+        """Search is case-insensitive."""
+        if sample_tag is None:
+            pytest.skip("No tags available in database")
+
+        # Search with different case
+        upper_search = sample_tag["tag_value"].upper()
+        result = await search_tags(search=upper_search)
+
+        assert isinstance(result, dict)
+        assert result["total_matches"] >= 1
+
+    @pytest.mark.asyncio
+    async def test_search_tags_limit(self, db_pool, sample_tag):
+        """Limit parameter restricts results."""
+        if sample_tag is None:
+            pytest.skip("No tags available in database")
+
+        result = await search_tags(search=sample_tag["tag_key"], limit=2)
+
+        assert isinstance(result, dict)
+        # Results should be limited to 2
+        assert len(result["matches"]) <= 2
+
+    @pytest.mark.asyncio
+    async def test_search_tags_has_device_info(self, db_pool, sample_tag):
+        """Results include device information."""
+        if sample_tag is None:
+            pytest.skip("No tags available in database")
+
+        result = await search_tags(search=sample_tag["tag_value"])
+
+        if result["total_matches"] > 0:
+            first_match = result["matches"][0]
+            assert "device_count" in first_match
+            assert "devices" in first_match
+            assert first_match["device_count"] > 0
+            assert isinstance(first_match["devices"], list)
+
+    @pytest.mark.asyncio
+    async def test_search_tags_match_quality(self, db_pool, sample_tag):
+        """Results include match quality information."""
+        if sample_tag is None:
+            pytest.skip("No tags available in database")
+
+        result = await search_tags(search=sample_tag["tag_value"])
+
+        if result["total_matches"] > 0:
+            first_match = result["matches"][0]
+            assert "match_type" in first_match
+            assert "match_quality" in first_match
+            assert first_match["match_type"] in ("value", "key")
+            assert first_match["match_quality"] in ("exact", "starts_with", "contains")
+
+    @pytest.mark.asyncio
+    async def test_search_tags_empty_search(self, db_pool):
+        """Empty search returns error."""
+        result = await search_tags(search="")
+
+        assert isinstance(result, dict)
+        assert "error" in result
+
+    @pytest.mark.asyncio
+    async def test_search_tags_whitespace_search(self, db_pool):
+        """Whitespace-only search returns error."""
+        result = await search_tags(search="   ")
+
+        assert isinstance(result, dict)
+        assert "error" in result

@@ -179,6 +179,148 @@ def format_list_tag_values_response(result: dict) -> str:
     return "\n".join(lines)
 
 
+async def search_tags(
+    search: str,
+    limit: int = 10,
+) -> dict:
+    """
+    Search for device tags by value or key.
+
+    Finds tags where tag_value or tag_key matches the search term.
+    Returns matching tag key/value pairs ranked by match quality.
+
+    Args:
+        search: Search term to match against tag_value and tag_key
+        limit: Maximum number of results (default: 10)
+
+    Returns:
+        Dictionary with matching tags and device info
+    """
+    if not search or not search.strip():
+        return {"error": "Search term is required"}
+
+    search = search.strip()
+
+    query = """
+        SELECT
+            dt.tag_key,
+            dt.tag_value,
+            dt.tag_category,
+            COUNT(DISTINCT dt.device_id) as device_count,
+            array_agg(DISTINCT d.display_name ORDER BY d.display_name) as devices,
+            CASE
+                WHEN LOWER(dt.tag_value) = LOWER($1) THEN 0
+                WHEN LOWER(dt.tag_value) LIKE LOWER($1) || '%' THEN 1
+                WHEN LOWER(dt.tag_value) LIKE '%' || LOWER($1) || '%' THEN 2
+                WHEN LOWER(dt.tag_key) = LOWER($1) THEN 3
+                WHEN LOWER(dt.tag_key) LIKE LOWER($1) || '%' THEN 4
+                WHEN LOWER(dt.tag_key) LIKE '%' || LOWER($1) || '%' THEN 5
+                ELSE 6
+            END as match_rank
+        FROM device_tags dt
+        JOIN devices d ON dt.device_id = d.id
+        WHERE dt.is_active = true
+          AND d.is_active = true
+          AND (
+              dt.tag_value ILIKE '%' || $1 || '%'
+              OR dt.tag_key ILIKE '%' || $1 || '%'
+          )
+        GROUP BY dt.tag_key, dt.tag_value, dt.tag_category
+        ORDER BY match_rank, device_count DESC, dt.tag_value
+        LIMIT $2
+    """
+
+    rows = await db.fetch_all(query, search, limit)
+
+    matches = []
+    for row in rows:
+        devices = row["devices"] or []
+        match_rank = row["match_rank"]
+
+        # Determine match type and quality from rank
+        if match_rank <= 2:
+            match_type = "value"
+        else:
+            match_type = "key"
+
+        if match_rank in (0, 3):
+            match_quality = "exact"
+        elif match_rank in (1, 4):
+            match_quality = "starts_with"
+        else:
+            match_quality = "contains"
+
+        matches.append({
+            "tag_key": row["tag_key"],
+            "tag_value": row["tag_value"],
+            "category": row["tag_category"],
+            "device_count": row["device_count"],
+            "devices": devices[:10],
+            "has_more_devices": len(devices) > 10,
+            "match_type": match_type,
+            "match_quality": match_quality,
+        })
+
+    return {
+        "search_term": search,
+        "total_matches": len(matches),
+        "matches": matches,
+    }
+
+
+def format_search_tags_response(result: dict) -> str:
+    """Format search_tags response for human-readable output."""
+    if "error" in result:
+        return f"Error: {result['error']}"
+
+    search_term = result["search_term"]
+    matches = result["matches"]
+    total = result["total_matches"]
+
+    if total == 0:
+        return f"No tags found matching '{search_term}'."
+
+    lines = [f"## Tag Search Results for '{search_term}' ({total} found)", ""]
+
+    for match in matches:
+        key = match["tag_key"]
+        value = match["tag_value"]
+        device_count = match["device_count"]
+        match_type = match.get("match_type", "value")
+        quality = match.get("match_quality", "contains")
+
+        # Show match indicator
+        if quality == "exact":
+            match_indicator = "[exact]"
+        else:
+            match_indicator = f"[{match_type}:{quality}]"
+
+        lines.append(f"### {key}={value} {match_indicator}")
+        lines.append(f"**Devices**: {device_count}")
+        if match.get("category"):
+            lines.append(f"**Category**: {match['category']}")
+
+        # List sample devices
+        devices = match.get("devices", [])
+        if devices:
+            for device in devices[:5]:
+                lines.append(f"  - {device}")
+            if match.get("has_more_devices") or len(devices) > 5:
+                lines.append("  - ... and more")
+        lines.append("")
+
+    # Hint for using the result
+    if matches:
+        first = matches[0]
+        lines.append("---")
+        lines.append(
+            f"**Tip**: Use `get_group_telemetry(tag_key=\"{first['tag_key']}\", "
+            f"tag_value=\"{first['tag_value']}\")` to query this group."
+        )
+
+    return "\n".join(lines)
+
+
 GroupByType = Literal["tag", "asset"]
 
 

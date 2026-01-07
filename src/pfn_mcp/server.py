@@ -375,6 +375,21 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             logger.error(f"list_tag_values failed: {e}")
             return [TextContent(type="text", text=f"Error: {e}")]
 
+    elif name == "search_tags":
+        search = arguments.get("search")
+        if not search:
+            return [TextContent(type="text", text="Error: search is required")]
+        try:
+            result = await group_telemetry_tool.search_tags(
+                search=search,
+                limit=arguments.get("limit", 10),
+            )
+            response = group_telemetry_tool.format_search_tags_response(result)
+            return [TextContent(type="text", text=response)]
+        except Exception as e:
+            logger.error(f"search_tags failed: {e}")
+            return [TextContent(type="text", text=f"Error: {e}")]
+
     elif name == "get_group_telemetry":
         try:
             result = await group_telemetry_tool.get_group_telemetry(
