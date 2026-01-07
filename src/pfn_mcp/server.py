@@ -395,6 +395,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             result = await group_telemetry_tool.get_group_telemetry(
                 tag_key=arguments.get("tag_key"),
                 tag_value=arguments.get("tag_value"),
+                tags=arguments.get("tags"),
                 asset_id=arguments.get("asset_id"),
                 quantity_id=arguments.get("quantity_id"),
                 quantity_search=arguments.get("quantity_search"),

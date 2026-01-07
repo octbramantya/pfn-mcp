@@ -344,6 +344,64 @@ async def _resolve_tag_devices(
     return [{"id": row["device_id"], "name": row["display_name"]} for row in rows], None
 
 
+async def _resolve_multi_tag_devices(
+    tags: list[dict],
+) -> tuple[list[dict], str | None]:
+    """
+    Get device IDs and names for devices matching ALL specified tags (AND logic).
+
+    Args:
+        tags: List of {"key": "...", "value": "..."} dicts
+
+    Returns:
+        Tuple of (devices list, error message or None)
+    """
+    if not tags:
+        return [], "At least one tag is required"
+
+    # Validate tag structure
+    for i, tag in enumerate(tags):
+        if not tag.get("key") or not tag.get("value"):
+            return [], f"Tag {i+1} missing 'key' or 'value'"
+
+    # Build query with multiple JOIN conditions for AND logic
+    # Each tag requires a separate JOIN to device_tags
+    joins = []
+    conditions = ["d.is_active = true"]
+    params = []
+    param_idx = 1
+
+    for i, tag in enumerate(tags):
+        alias = f"dt{i}"
+        joins.append(f"JOIN device_tags {alias} ON d.id = {alias}.device_id")
+        conditions.append(f"{alias}.tag_key ILIKE ${param_idx}")
+        params.append(tag["key"])
+        param_idx += 1
+        conditions.append(f"{alias}.tag_value ILIKE ${param_idx}")
+        params.append(tag["value"])
+        param_idx += 1
+        conditions.append(f"{alias}.is_active = true")
+
+    joins_sql = "\n        ".join(joins)
+    where_sql = "\n          AND ".join(conditions)
+
+    query = f"""
+        SELECT DISTINCT d.id as device_id, d.display_name
+        FROM devices d
+        {joins_sql}
+        WHERE {where_sql}
+        ORDER BY d.display_name
+    """
+
+    rows = await db.fetch_all(query, *params)
+
+    if not rows:
+        tag_str = " AND ".join(f"{t['key']}={t['value']}" for t in tags)
+        return [], f"No devices found matching all tags: {tag_str}"
+
+    return [{"id": row["device_id"], "name": row["display_name"]} for row in rows], None
+
+
 async def _resolve_asset_devices(asset_id: int) -> tuple[list[dict], str | None]:
     """Get device IDs and names for an asset hierarchy using database function."""
     # First check if the asset exists
@@ -393,6 +451,7 @@ async def _resolve_asset_devices(asset_id: int) -> tuple[list[dict], str | None]
 async def get_group_telemetry(
     tag_key: str | None = None,
     tag_value: str | None = None,
+    tags: list[dict] | None = None,
     asset_id: int | None = None,
     quantity_id: int | None = None,
     quantity_search: str | None = None,
@@ -404,13 +463,16 @@ async def get_group_telemetry(
     """
     Get aggregated telemetry for a group of devices.
 
-    Group by tag (tag_key + tag_value) or asset hierarchy (asset_id).
+    Group by tag (tag_key + tag_value), multiple tags (AND logic), or asset hierarchy.
     Default: electricity consumption/cost from daily_energy_cost_summary.
     With quantity specified: any WAGE metric from telemetry_15min_agg.
 
     Args:
-        tag_key: Tag key for grouping (e.g., "process", "building")
+        tag_key: Tag key for single-tag grouping (e.g., "process", "building")
         tag_value: Tag value to match (e.g., "Waterjet", "Factory A")
+        tags: List of tags for multi-tag AND query. Each: {"key": "...", "value": "..."}
+              Example: [{"key": "building", "value": "Factory B"},
+                        {"key": "equipment_type", "value": "Compressor"}]
         asset_id: Asset ID for hierarchy-based grouping
         quantity_id: Quantity ID for non-electricity metrics
         quantity_search: Quantity search term (e.g., "power", "water flow")
@@ -423,7 +485,13 @@ async def get_group_telemetry(
         Dictionary with group summary and optional breakdown
     """
     # Validate grouping parameters
-    if tag_key and tag_value:
+    if tags and len(tags) > 0:
+        # Multi-tag AND query
+        devices, error = await _resolve_multi_tag_devices(tags)
+        group_type = "multi_tag"
+        group_label = " AND ".join(f"{t['key']}={t['value']}" for t in tags)
+    elif tag_key and tag_value:
+        # Single tag query (backward compatible)
         devices, error = await _resolve_tag_devices(tag_key, tag_value)
         group_type = "tag"
         group_label = f"{tag_key}={tag_value}"
@@ -437,7 +505,7 @@ async def get_group_telemetry(
         )
         group_label = asset["asset_name"] if asset else f"Asset {asset_id}"
     else:
-        return {"error": "Either (tag_key + tag_value) or asset_id is required"}
+        return {"error": "Either (tag_key + tag_value), tags array, or asset_id is required"}
 
     if error:
         return {"error": error}

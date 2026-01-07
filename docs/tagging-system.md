@@ -58,6 +58,60 @@ Query: "Energy for PRS main meter"
 → Single meter reading = 45,000 kWh
 ```
 
+## Multi-Tag AND Queries
+
+Query devices matching ALL specified tags using the `tags` array parameter.
+
+### Use Case: Equipment within Location
+
+```
+Device: Compressor-01
+Tags:
+  - building=Factory B
+  - equipment_type=Compressor
+
+Device: Compressor-02
+Tags:
+  - building=Factory A
+  - equipment_type=Compressor
+```
+
+**Query: "All compressors in Factory B"**
+```python
+get_group_telemetry(
+    tags=[
+        {"key": "building", "value": "Factory B"},
+        {"key": "equipment_type", "value": "Compressor"}
+    ],
+    period="7d"
+)
+# Returns only Compressor-01 (matches both tags)
+```
+
+### API Usage
+
+**Single tag (backward compatible):**
+```python
+get_group_telemetry(tag_key="building", tag_value="Factory B")
+```
+
+**Multi-tag AND:**
+```python
+get_group_telemetry(tags=[
+    {"key": "building", "value": "Factory B"},
+    {"key": "equipment_type", "value": "Compressor"}
+])
+```
+
+**Open WebUI wrapper (string format):**
+```
+get_group_telemetry(tags="building:Factory B,equipment_type:Compressor")
+```
+
+### Priority
+
+When both `tags` and `tag_key/tag_value` are provided, `tags` takes priority.
+
 ## Implementation
 
 ### Files Modified

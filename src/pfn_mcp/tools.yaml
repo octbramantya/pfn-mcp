@@ -470,15 +470,23 @@ tools:
       Get aggregated telemetry for a group of devices.
       Default: electricity consumption/cost.
       With quantity: any WAGE metric (power, water flow, air pressure, etc.).
-      Group by tag (tag_key + tag_value) or asset hierarchy (asset_id).
+      Group by: single tag (tag_key + tag_value), multiple tags with AND logic (tags array),
+      or asset hierarchy (asset_id).
       Supports breakdown by device or daily.
     params:
       - name: tag_key
         type: string
-        description: "Tag key for grouping (e.g., 'process', 'building')"
+        description: "Tag key for single-tag grouping (e.g., 'process', 'building')"
       - name: tag_value
         type: string
         description: "Tag value to match (e.g., 'Waterjet', 'Factory A')"
+      - name: tags
+        type: array
+        items: object
+        description: >-
+          Multi-tag AND query. List of {key, value} objects.
+          Example: [{"key": "building", "value": "Factory B"}, {"key": "equipment_type", "value": "Compressor"}]
+          Returns devices matching ALL specified tags.
       - name: asset_id
         type: integer
         description: Asset ID for hierarchy-based grouping

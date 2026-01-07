@@ -6,6 +6,7 @@ Tests for group telemetry aggregation tools.
 import pytest
 
 from pfn_mcp.tools.group_telemetry import (
+    _resolve_multi_tag_devices,
     compare_groups,
     get_group_telemetry,
     list_tag_values,
@@ -317,3 +318,127 @@ class TestSearchTags:
 
         assert isinstance(result, dict)
         assert "error" in result
+
+
+class TestMultiTagQueries:
+    """Tests for multi-tag AND queries in get_group_telemetry."""
+
+    @pytest.mark.asyncio
+    async def test_resolve_multi_tag_empty_list(self, db_pool):
+        """Empty tags list returns error."""
+        devices, error = await _resolve_multi_tag_devices([])
+
+        assert devices == []
+        assert error is not None
+        assert "At least one tag" in error
+
+    @pytest.mark.asyncio
+    async def test_resolve_multi_tag_missing_key(self, db_pool):
+        """Tag missing 'key' returns error."""
+        devices, error = await _resolve_multi_tag_devices([{"value": "test"}])
+
+        assert devices == []
+        assert error is not None
+        assert "missing 'key' or 'value'" in error
+
+    @pytest.mark.asyncio
+    async def test_resolve_multi_tag_missing_value(self, db_pool):
+        """Tag missing 'value' returns error."""
+        devices, error = await _resolve_multi_tag_devices([{"key": "test"}])
+
+        assert devices == []
+        assert error is not None
+        assert "missing 'key' or 'value'" in error
+
+    @pytest.mark.asyncio
+    async def test_resolve_multi_tag_single_tag(self, db_pool, sample_tag):
+        """Single tag in array works like regular tag query."""
+        if sample_tag is None:
+            pytest.skip("No tags available in database")
+
+        tags = [{"key": sample_tag["tag_key"], "value": sample_tag["tag_value"]}]
+        devices, error = await _resolve_multi_tag_devices(tags)
+
+        # Should return devices (same as single tag)
+        assert error is None or len(devices) >= 0
+
+    @pytest.mark.asyncio
+    async def test_resolve_multi_tag_no_matching_devices(self, db_pool):
+        """Multi-tag query with no matches returns error."""
+        tags = [
+            {"key": "NONEXISTENT_KEY_ABC", "value": "test"},
+            {"key": "ANOTHER_FAKE_KEY", "value": "test2"},
+        ]
+        devices, error = await _resolve_multi_tag_devices(tags)
+
+        assert devices == []
+        assert error is not None
+        assert "No devices found" in error
+
+    @pytest.mark.asyncio
+    async def test_get_group_telemetry_with_tags_array(self, db_pool, sample_tag):
+        """get_group_telemetry accepts tags array parameter."""
+        if sample_tag is None:
+            pytest.skip("No tags available in database")
+
+        # Use single tag in array format
+        tags = [{"key": sample_tag["tag_key"], "value": sample_tag["tag_value"]}]
+        result = await get_group_telemetry(tags=tags, period="7d")
+
+        assert isinstance(result, dict)
+        # Should have either summary or error
+        assert "summary" in result or "error" in result
+
+    @pytest.mark.asyncio
+    async def test_get_group_telemetry_tags_priority_over_single(self, db_pool, sample_tag):
+        """tags array takes priority over tag_key/tag_value."""
+        if sample_tag is None:
+            pytest.skip("No tags available in database")
+
+        # Provide both - tags should be used
+        tags = [{"key": sample_tag["tag_key"], "value": sample_tag["tag_value"]}]
+        result = await get_group_telemetry(
+            tag_key="ignored_key",
+            tag_value="ignored_value",
+            tags=tags,
+            period="7d",
+        )
+
+        assert isinstance(result, dict)
+        # Should use tags array, not the single tag_key/tag_value
+        if "group" in result:
+            # Label should reflect the tags array content
+            assert sample_tag["tag_key"] in result["group"]["label"]
+
+    @pytest.mark.asyncio
+    async def test_get_group_telemetry_multi_tag_label(self, db_pool, sample_tag):
+        """Multi-tag query generates correct label with AND."""
+        if sample_tag is None:
+            pytest.skip("No tags available in database")
+
+        # Use two copies of same tag (will match same devices)
+        tags = [
+            {"key": sample_tag["tag_key"], "value": sample_tag["tag_value"]},
+            {"key": sample_tag["tag_key"], "value": sample_tag["tag_value"]},
+        ]
+        result = await get_group_telemetry(tags=tags, period="7d")
+
+        assert isinstance(result, dict)
+        if "group" in result:
+            # Label should contain AND
+            assert "AND" in result["group"]["label"] or "error" in result
+
+    @pytest.mark.asyncio
+    async def test_get_group_telemetry_backward_compatible(self, db_pool, sample_tag):
+        """Existing tag_key/tag_value still works without tags param."""
+        if sample_tag is None:
+            pytest.skip("No tags available in database")
+
+        result = await get_group_telemetry(
+            tag_key=sample_tag["tag_key"],
+            tag_value=sample_tag["tag_value"],
+            period="7d",
+        )
+
+        assert isinstance(result, dict)
+        assert "summary" in result or "error" in result

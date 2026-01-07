@@ -219,10 +219,17 @@ class Tools:
         tenant = self._get_tenant_code(__user__)
         return await self._call_mcp("list_tag_values", {"tenant": tenant, "tag_key": tag_key})
 
-    async def get_group_telemetry(self, tag_key: str, tag_value: str, period: str = "7d", breakdown: str = "none", __user__: dict = None) -> str:
-        """Get aggregated telemetry for a device group."""
+    async def get_group_telemetry(self, tag_key: str = "", tag_value: str = "", tags: str = "", period: str = "7d", breakdown: str = "none", __user__: dict = None) -> str:
+        """Get aggregated telemetry for a device group. Use tags for multi-tag AND: 'key1:val1,key2:val2'"""
         tenant = self._get_tenant_code(__user__)
-        return await self._call_mcp("get_group_telemetry", {"tenant": tenant, "tag_key": tag_key, "tag_value": tag_value, "period": period, "breakdown": breakdown})
+        params = {"tenant": tenant, "period": period, "breakdown": breakdown}
+        if tags:
+            # Parse 'key1:val1,key2:val2' format into tags array
+            params["tags"] = [{"key": t.split(":")[0], "value": t.split(":")[1]} for t in tags.split(",") if ":" in t]
+        elif tag_key and tag_value:
+            params["tag_key"] = tag_key
+            params["tag_value"] = tag_value
+        return await self._call_mcp("get_group_telemetry", params)
 
     async def compare_groups(self, groups: str, period: str = "7d", __user__: dict = None) -> str:
         """Compare consumption across groups. Format: 'key1:value1,key2:value2'"""
