@@ -16,15 +16,51 @@ Users ask "What's energy for PRS?" but the system can't resolve "PRS" without kn
 New tool: `search_tags(search)` - searches both `tag_value` AND `tag_key` (case-insensitive, ranked by match quality).
 
 ```
-User: "PRS"
+User: "PRS main meter"
   → search_tags("PRS")
-  → [{"tag_key": "tenant", "tag_value": "PRS", "device_count": 1}]
-  → get_group_telemetry(tag_key="tenant", tag_value="PRS")
+  → [{"tag_key": "main_meter", "tag_value": "PRS", "device_count": 1}]
+  → get_group_telemetry(tag_key="main_meter", tag_value="PRS")
+```
+
+## Tag Naming Convention
+
+**Important**: Avoid using `tenant` as a tag_key to prevent confusion with the `tenant` parameter.
+
+| Concept | Mechanism | Example |
+|---------|-----------|---------|
+| **Tenant ownership** | `tenant` parameter | `list_devices(tenant="PRS")` → all 10 devices owned by PRS |
+| **Main meter tag** | `tag_key="main_meter"` | `get_group_telemetry(tag_key="main_meter", tag_value="PRS")` → 1 device representing PRS |
+
+### Recommended Tag Keys
+
+| tag_key | Purpose | Example |
+|---------|---------|---------|
+| `main_meter` | Primary measurement point for an entity | `main_meter=PRS` → PRS's main electricity meter |
+| `process` | Production process grouping | `process=Waterjet` → all waterjet machines |
+| `building` | Physical location | `building=Factory A` → devices in Factory A |
+| `area` | Sub-location within building | `area=Production Floor` |
+| `cost_center` | Billing/accounting grouping | `cost_center=CC001` |
+
+### Example: Distinguishing Tenant vs Main Meter
+
+```
+Tenant PRS owns 10 devices:
+- PRS Main Meter (tagged: main_meter=PRS)
+- Machine 1, Machine 2, ... Machine 9
+
+Query: "Total energy for tenant PRS"
+→ get_electricity_cost(tenant="PRS")
+→ Sum of all 10 devices = 50,000 kWh
+
+Query: "Energy for PRS main meter"
+→ search_tags("PRS") → finds main_meter=PRS
+→ get_group_telemetry(tag_key="main_meter", tag_value="PRS")
+→ Single meter reading = 45,000 kWh
 ```
 
 ## Implementation
 
-### Files to Modify
+### Files Modified
 
 | File | Change |
 |------|--------|
@@ -33,7 +69,7 @@ User: "PRS"
 | `src/pfn_mcp/server.py` | Add call_tool handler |
 | `tests/test_phase2_group_telemetry.py` | Add test cases |
 
-### 1. Function: `search_tags()` in `group_telemetry.py`
+### Function: `search_tags()` in `group_telemetry.py`
 
 ```python
 async def search_tags(
@@ -76,7 +112,7 @@ LIMIT $2
     "total_matches": 2,
     "matches": [
         {
-            "tag_key": "tenant",
+            "tag_key": "main_meter",
             "tag_value": "PRS",
             "category": "organization",
             "device_count": 1,
@@ -89,22 +125,21 @@ LIMIT $2
 }
 ```
 
-### 2. Formatter: `format_search_tags_response()`
+### Formatter Output
 
-Output format:
 ```markdown
 ## Tag Search Results for 'PRS' (2 found)
 
-### tenant=PRS [exact]
+### main_meter=PRS [exact]
 **Devices**: 1
 **Category**: organization
   - PRS Main Meter
 
 ---
-**Tip**: Use `get_group_telemetry(tag_key="tenant", tag_value="PRS")` to query this group.
+**Tip**: Use `get_group_telemetry(tag_key="main_meter", tag_value="PRS")` to query this group.
 ```
 
-### 3. Tool Schema in `tools.yaml`
+### Tool Schema in `tools.yaml`
 
 ```yaml
 - name: search_tags
@@ -125,22 +160,7 @@ Output format:
       default: 10
 ```
 
-### 4. Handler in `server.py`
-
-```python
-elif name == "search_tags":
-    search = arguments.get("search")
-    if not search:
-        return [TextContent(type="text", text="Error: search is required")]
-    result = await group_telemetry_tool.search_tags(
-        search=search,
-        limit=arguments.get("limit", 10),
-    )
-    response = group_telemetry_tool.format_search_tags_response(result)
-    return [TextContent(type="text", text=response)]
-```
-
-### 5. Tests in `test_phase2_group_telemetry.py`
+### Tests
 
 | Test | Description |
 |------|-------------|
@@ -151,12 +171,6 @@ elif name == "search_tags":
 | `test_search_tags_case_insensitive` | Case variations work |
 | `test_search_tags_limit` | Limit parameter restricts results |
 | `test_search_tags_has_device_info` | Results include device info |
-
-## Execution Sequence
-
-1. Add `search_tags()` and formatter to `group_telemetry.py`
-2. Add tool schema to `tools.yaml`
-3. Add handler to `server.py`
-4. Add tests to `test_phase2_group_telemetry.py`
-5. Run `ruff check src/` and `pytest tests/test_phase2_group_telemetry.py -v`
-6. Run `/tool-update` to sync Open WebUI wrapper
+| `test_search_tags_match_quality` | Match quality info included |
+| `test_search_tags_empty_search` | Empty search returns error |
+| `test_search_tags_whitespace_search` | Whitespace-only returns error |
