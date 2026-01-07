@@ -255,9 +255,15 @@ class Tools:
         """Get time range of available data for a device."""
         return await self._call_mcp("get_device_data_range", {"device_name": device})
 
-    async def get_device_info(self, device: str, __user__: dict = None) -> str:
-        """Get detailed device information including metadata."""
-        return await self._call_mcp("get_device_info", {"device_name": device})
+    async def get_device_info(self, device: str = "", ip_address: str = "", slave_id: int = 0, __user__: dict = None) -> str:
+        """Get device info by name or Modbus address (ip_address + slave_id)."""
+        params = {}
+        if device:
+            params["device_name"] = device
+        if ip_address and slave_id:
+            params["ip_address"] = ip_address
+            params["slave_id"] = slave_id
+        return await self._call_mcp("get_device_info", params)
 
     # =========================================================================
     # HELPER TOOL
