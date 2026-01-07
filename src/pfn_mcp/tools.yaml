@@ -1,0 +1,523 @@
+# PFN MCP Tool Definitions
+# Source of truth for tool schemas - used by server.py and /tool-update skill
+#
+# tenant_aware: true = wrapper injects tenant from user context
+# tenant_aware: false = global tool, no tenant injection
+
+tools:
+  # ===========================================================================
+  # PHASE 1: Discovery Tools
+  # ===========================================================================
+
+  - name: list_tenants
+    tenant_aware: false
+    description: List all available tenants in the Valkyrie database
+    params: []
+
+  - name: list_devices
+    tenant_aware: true
+    description: >-
+      Search for devices by name. Supports fuzzy matching.
+      Returns device info with tenant context.
+    params:
+      - name: search
+        type: string
+        description: Search term to filter devices by name
+      - name: tenant
+        type: string
+        description: "Tenant name or code to filter devices (e.g., 'PRS')"
+      - name: limit
+        type: integer
+        description: "Maximum number of results (default: 20)"
+        default: 20
+
+  - name: list_quantities
+    tenant_aware: false
+    description: >-
+      List available measurement quantities (metrics).
+      Supports semantic search: 'voltage', 'power', 'energy', 'current',
+      'power factor', 'thd', 'frequency', 'water', 'air'.
+      Categories: Electricity, Water, Air, Gas.
+    params:
+      - name: category
+        type: string
+        description: "Filter by WAGE category. Accepts: electricity/electrical, water, air, gas"
+      - name: search
+        type: string
+        description: >-
+          Semantic search term: voltage, power, energy, current,
+          power factor, thd, frequency, unbalance, water, air
+
+  - name: list_device_quantities
+    tenant_aware: false
+    description: >-
+      List quantities available for a specific device.
+      Shows what measurements exist in telemetry for the device.
+      Supports semantic search for quantity types.
+    params:
+      - name: device_id
+        type: integer
+        description: Device ID to query
+      - name: device_name
+        type: string
+        description: Device name (fuzzy search)
+      - name: search
+        type: string
+        description: "Filter by quantity type: voltage, power, energy, current, thd, etc."
+
+  - name: compare_device_quantities
+    tenant_aware: false
+    description: >-
+      Compare quantities available across multiple devices.
+      Shows shared quantities and per-device breakdown.
+      Useful for finding common measurements between devices.
+    params:
+      - name: device_ids
+        type: array
+        items: integer
+        description: List of device IDs to compare
+      - name: device_names
+        type: array
+        items: string
+        description: List of device names (fuzzy search)
+      - name: search
+        type: string
+        description: "Filter by quantity type: voltage, power, etc."
+
+  - name: get_device_data_range
+    tenant_aware: false
+    description: >-
+      Get the time range of available data for a device.
+      Shows earliest/latest data timestamps, days of data, and quantity breakdown.
+      Essential for knowing what date ranges to query.
+    params:
+      - name: device_id
+        type: integer
+        description: Device ID to query
+      - name: device_name
+        type: string
+        description: Device name (fuzzy search)
+      - name: quantity_id
+        type: integer
+        description: "Optional: check specific quantity"
+      - name: quantity_search
+        type: string
+        description: "Optional: filter by quantity type (voltage, power, etc.)"
+
+  - name: find_devices_by_quantity
+    tenant_aware: true
+    description: >-
+      Find all devices that have data for a specific quantity.
+      Useful for finding which devices track a particular metric.
+      Groups results by tenant.
+    params:
+      - name: quantity_id
+        type: integer
+        description: Quantity ID to search for
+      - name: quantity_search
+        type: string
+        description: Quantity search term (voltage, power, energy, etc.)
+      - name: tenant
+        type: string
+        description: "Tenant name or code to filter results (e.g., 'PRS')"
+
+  - name: get_device_info
+    tenant_aware: false
+    description: >-
+      Get detailed device information including metadata.
+      Shows manufacturer, model, Modbus address (slave_id + IP),
+      location, and communication protocol.
+      Can search by: device_id, device_name (fuzzy), or ip_address + slave_id.
+      Use ip_address + slave_id for direct Modbus lookup (avoids brute-force search).
+    params:
+      - name: device_id
+        type: integer
+        description: Device ID to query
+      - name: device_name
+        type: string
+        description: Device name (fuzzy search)
+      - name: ip_address
+        type: string
+        description: IP address for Modbus search (requires slave_id)
+      - name: slave_id
+        type: integer
+        description: Modbus slave ID for Modbus search (requires ip_address)
+      - name: tenant
+        type: string
+        description: Tenant name or code filter (optional, narrows search)
+
+  - name: check_data_freshness
+    tenant_aware: true
+    description: >-
+      Check when data was last received for device(s).
+      Identifies offline, stale, or recently active meters.
+      Can check single device or all devices for a tenant.
+    params:
+      - name: device_id
+        type: integer
+        description: Device ID to check
+      - name: device_name
+        type: string
+        description: Device name (fuzzy search)
+      - name: tenant
+        type: string
+        description: "Tenant name or code to check all devices (e.g., 'PRS')"
+      - name: hours_threshold
+        type: integer
+        description: "Hours to consider data 'stale' (default: 24)"
+        default: 24
+
+  - name: get_tenant_summary
+    tenant_aware: true
+    description: >-
+      Get comprehensive tenant overview.
+      Shows device counts, data range, quantity coverage by category,
+      and device models. Good starting point for tenant analysis.
+    params:
+      - name: tenant_id
+        type: integer
+        description: Tenant ID to query
+      - name: tenant_name
+        type: string
+        description: Tenant name (fuzzy search)
+
+  # ===========================================================================
+  # PHASE 2: Telemetry Tools
+  # ===========================================================================
+
+  - name: resolve_device
+    tenant_aware: true
+    description: >-
+      Confirm device selection before querying telemetry.
+      Returns ranked candidates with match confidence (exact/partial/fuzzy).
+      Use BEFORE get_device_telemetry when user provides device name, not ID.
+      Prevents wrong-device queries from ambiguous fuzzy matches.
+    params:
+      - name: search
+        type: string
+        description: Device name search term
+        required: true
+      - name: tenant
+        type: string
+        description: "Tenant name or code to filter devices (e.g., 'PRS')"
+      - name: limit
+        type: integer
+        description: "Maximum candidates to return (default: 5)"
+        default: 5
+
+  - name: get_device_telemetry
+    tenant_aware: true
+    description: >-
+      Fetch time-series telemetry data for a device.
+      Returns aggregated data (avg, min, max, sum, count) with adaptive bucketing.
+      Supports period strings (24h, 7d, 30d) or date ranges.
+      Use resolve_device first if device name is ambiguous.
+    params:
+      - name: device_id
+        type: integer
+        description: Device ID (preferred over device_name)
+      - name: device_name
+        type: string
+        description: Device name (fuzzy search)
+      - name: quantity_id
+        type: integer
+        description: Quantity ID (preferred over quantity_search)
+      - name: quantity_search
+        type: string
+        description: "Quantity search: voltage, power, energy, current, power factor, thd, frequency"
+      - name: period
+        type: string
+        description: "Time period: 1h, 24h, 7d, 30d, 3M, 1Y"
+      - name: start_date
+        type: string
+        description: Start date (ISO format, alternative to period)
+      - name: end_date
+        type: string
+        description: End date (ISO format, defaults to now)
+      - name: bucket
+        type: string
+        description: "Bucket size: 15min, 1hour, 4hour, 1day, 1week, auto"
+        default: auto
+
+  - name: get_quantity_stats
+    tenant_aware: true
+    description: >-
+      Pre-flight validation before telemetry queries.
+      Returns data availability stats: point count, min/max/avg values,
+      first/last timestamps, data completeness percentage, and gaps.
+      Use to verify data exists before calling get_device_telemetry.
+    params:
+      - name: device_id
+        type: integer
+        description: Device ID to query
+        required: true
+      - name: quantity_id
+        type: integer
+        description: Quantity ID (preferred over quantity_search)
+      - name: quantity_search
+        type: string
+        description: "Quantity search: voltage, power, energy, etc."
+      - name: period
+        type: string
+        description: "Time period to check (default: 30d)"
+        default: 30d
+
+  # ===========================================================================
+  # PHASE 2: Electricity Cost Tools
+  # ===========================================================================
+
+  - name: get_electricity_cost
+    tenant_aware: true
+    description: >-
+      Get electricity consumption and cost for a device or tenant.
+      Queries pre-aggregated daily cost data with time-of-use rates.
+      Supports breakdown by: daily, shift, rate (WBP/LWBP), or source (PLN/Solar).
+      Period formats: '7d', '1M', '2025-12', or 'YYYY-MM-DD to YYYY-MM-DD'.
+    params:
+      - name: device
+        type: string
+        description: Device name (fuzzy match)
+      - name: tenant
+        type: string
+        description: Tenant name (fuzzy match)
+      - name: period
+        type: string
+        description: "Time period: '7d', '30d', '1M', '2025-12', or 'YYYY-MM-DD to YYYY-MM-DD' (default: 7d)"
+      - name: start_date
+        type: string
+        description: Explicit start date (YYYY-MM-DD)
+      - name: end_date
+        type: string
+        description: Explicit end date (YYYY-MM-DD)
+      - name: breakdown
+        type: string
+        description: "Breakdown type: 'none', 'daily', 'shift', 'rate', 'source' (default: none)"
+        enum: [none, daily, shift, rate, source]
+        default: none
+
+  - name: get_electricity_cost_breakdown
+    tenant_aware: true
+    description: >-
+      Detailed electricity cost breakdown for a device.
+      Groups by shift (SHIFT1/2/3), rate (WBP/LWBP), source (PLN/Solar),
+      or combined shift+rate. Use for shift productivity or rate analysis.
+    params:
+      - name: device
+        type: string
+        description: Device name (fuzzy match, required)
+        required: true
+      - name: period
+        type: string
+        description: "Time period: '7d', '1M', '2025-12' (default: 7d)"
+      - name: start_date
+        type: string
+        description: Explicit start date (YYYY-MM-DD)
+      - name: end_date
+        type: string
+        description: Explicit end date (YYYY-MM-DD)
+      - name: group_by
+        type: string
+        description: "Grouping: 'shift', 'rate', 'source', 'shift_rate' (default: shift_rate)"
+        enum: [shift, rate, source, shift_rate]
+        default: shift_rate
+
+  - name: get_electricity_cost_ranking
+    tenant_aware: true
+    description: >-
+      Rank devices by electricity cost or consumption within a tenant.
+      Shows top consumers with percentage of total.
+      Use for identifying high-cost equipment or usage patterns.
+    params:
+      - name: tenant
+        type: string
+        description: Tenant name (fuzzy match, required)
+        required: true
+      - name: period
+        type: string
+        description: "Time period: '7d', '30d', '1M' (default: 30d)"
+      - name: start_date
+        type: string
+        description: Explicit start date (YYYY-MM-DD)
+      - name: end_date
+        type: string
+        description: Explicit end date (YYYY-MM-DD)
+      - name: metric
+        type: string
+        description: "Ranking metric: 'cost' or 'consumption' (default: cost)"
+        enum: [cost, consumption]
+        default: cost
+      - name: limit
+        type: integer
+        description: "Number of results (default: 10)"
+        default: 10
+
+  - name: compare_electricity_periods
+    tenant_aware: true
+    description: >-
+      Compare electricity costs between two time periods.
+      Shows consumption and cost for each period with change metrics.
+      Use for month-over-month or custom period comparisons.
+    params:
+      - name: device
+        type: string
+        description: Device name (fuzzy match)
+      - name: tenant
+        type: string
+        description: Tenant name (fuzzy match)
+      - name: period1
+        type: string
+        description: "First period (e.g., '2025-11', '30d')"
+        required: true
+      - name: period2
+        type: string
+        description: "Second period (e.g., '2025-12', '30d')"
+        required: true
+
+  # ===========================================================================
+  # PHASE 2: Group Telemetry Tools
+  # ===========================================================================
+
+  - name: list_tags
+    tenant_aware: true
+    description: >-
+      List available device tags for grouping.
+      Tags allow flexible grouping by process, building, area, etc.
+      Shows tag keys, values, and device counts by category.
+    params:
+      - name: tag_key
+        type: string
+        description: "Filter by specific tag key (e.g., 'process', 'building')"
+      - name: tag_category
+        type: string
+        description: "Filter by tag category (e.g., 'location', 'production')"
+
+  - name: list_tag_values
+    tenant_aware: true
+    description: >-
+      List all values for a specific tag key with device counts.
+      Shows which devices belong to each tag value.
+      Use to explore available groupings before get_group_telemetry.
+    params:
+      - name: tag_key
+        type: string
+        description: "Tag key to list values for (e.g., 'process', 'building')"
+        required: true
+
+  - name: get_group_telemetry
+    tenant_aware: true
+    description: >-
+      Get aggregated telemetry for a group of devices.
+      Default: electricity consumption/cost.
+      With quantity: any WAGE metric (power, water flow, air pressure, etc.).
+      Group by tag (tag_key + tag_value) or asset hierarchy (asset_id).
+      Supports breakdown by device or daily.
+    params:
+      - name: tag_key
+        type: string
+        description: "Tag key for grouping (e.g., 'process', 'building')"
+      - name: tag_value
+        type: string
+        description: "Tag value to match (e.g., 'Waterjet', 'Factory A')"
+      - name: asset_id
+        type: integer
+        description: Asset ID for hierarchy-based grouping
+      - name: quantity_id
+        type: integer
+        description: Quantity ID for WAGE metrics (omit for electricity cost)
+      - name: quantity_search
+        type: string
+        description: "Quantity search: power, voltage, water flow, air pressure, etc. (omit for electricity cost)"
+      - name: period
+        type: string
+        description: "Time period: '7d', '1M', '2025-12' (default: 7d)"
+      - name: start_date
+        type: string
+        description: Explicit start date (YYYY-MM-DD)
+      - name: end_date
+        type: string
+        description: Explicit end date (YYYY-MM-DD)
+      - name: breakdown
+        type: string
+        description: "Breakdown type: 'none', 'device', 'daily' (default: none)"
+        enum: [none, device, daily]
+        default: none
+
+  - name: compare_groups
+    tenant_aware: true
+    description: >-
+      Compare electricity consumption across multiple groups.
+      Each group can be defined by tag or asset.
+      Returns consumption, cost, and percentage for each group.
+    params:
+      - name: groups
+        type: array
+        items: object
+        description: >-
+          List of groups to compare. Each group needs either
+          (tag_key + tag_value) or asset_id
+        required: true
+      - name: period
+        type: string
+        description: "Time period: '7d', '1M', '2025-12' (default: 7d)"
+      - name: start_date
+        type: string
+        description: Explicit start date (YYYY-MM-DD)
+      - name: end_date
+        type: string
+        description: Explicit end date (YYYY-MM-DD)
+
+  # ===========================================================================
+  # PHASE 2: Peak Analysis Tools
+  # ===========================================================================
+
+  - name: get_peak_analysis
+    tenant_aware: true
+    description: >-
+      Find peak values with timestamps for a device or group.
+      Returns top N peaks per bucket (hour/day/week).
+      Shows which device caused each peak.
+      Supports any WAGE quantity: power, flow, pressure, etc.
+    params:
+      - name: device_id
+        type: integer
+        description: Single device ID
+      - name: device_name
+        type: string
+        description: Single device name (fuzzy search)
+      - name: tag_key
+        type: string
+        description: "Tag key for group (e.g., 'process', 'building')"
+      - name: tag_value
+        type: string
+        description: "Tag value for group (e.g., 'Waterjet')"
+      - name: asset_id
+        type: integer
+        description: Asset ID for hierarchy-based grouping
+      - name: quantity_id
+        type: integer
+        description: "Quantity ID (e.g., 185 for Active Power)"
+      - name: quantity_search
+        type: string
+        description: "Quantity search: power, flow, pressure, voltage, etc."
+      - name: period
+        type: string
+        description: "Time period: '7d', '30d', '1M' (default: 7d)"
+      - name: start_date
+        type: string
+        description: Explicit start date (YYYY-MM-DD)
+      - name: end_date
+        type: string
+        description: Explicit end date (YYYY-MM-DD)
+      - name: bucket
+        type: string
+        description: "Bucket size: '1hour', '1day', '1week' (auto if omitted)"
+        enum: [1hour, 1day, 1week]
+      - name: top_n
+        type: integer
+        description: "Number of top peaks to return (default: 10)"
+        default: 10
+      - name: breakdown
+        type: string
+        description: "Breakdown: 'none' or 'device_daily' (default: none)"
+        enum: [none, device_daily]
+        default: none

@@ -39,7 +39,9 @@ Copy `.env.example` to `.env` with database credentials:
 
 ```
 src/pfn_mcp/
-├── server.py      # MCP server entry point, tool registration (@mcp.list_tools, @mcp.call_tool)
+├── server.py      # MCP server entry point, call_tool handlers
+├── tools.yaml     # Tool schemas - SOURCE OF TRUTH for all tool definitions
+├── tool_schema.py # YAML→Tool loader (yaml_to_tools, get_tool_metadata)
 ├── db.py          # asyncpg connection pool (init_pool, fetch_all, fetch_one, fetch_val)
 ├── config.py      # Pydantic settings from environment
 ├── sse_server.py  # SSE/HTTP transport for remote deployment (VPS)
@@ -56,9 +58,10 @@ src/pfn_mcp/
 ```
 
 **Key patterns:**
+- Tool schemas defined in `tools.yaml` (name, description, params, tenant_aware)
+- `server.py` loads schemas via `yaml_to_tools()` and contains call_tool handlers
 - Each tool module exports async function(s) and `format_*_response()` formatter
 - Database queries use positional parameters (`$1`, `$2`) for asyncpg
-- Server initializes DB pool on startup, closes in `finally` block
 - Semantic search via `QUANTITY_ALIASES` dict in quantities.py
 
 ## Available Tools (Phase 1)
