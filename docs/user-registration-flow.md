@@ -90,18 +90,54 @@ VALKYRIE_DATABASE_URL=postgresql://postgres:***@88.222.213.96:5432/valkyrie
 
 ## Part 3: Cron Deployment
 
-**Option A: Systemd Timer (recommended for VPS)**
+**Recommended: Crontab** (simplest approach)
 
-```ini
-# /etc/systemd/system/keycloak-sync.timer
-[Timer]
-OnBootSec=1min
-OnUnitActiveSec=5min
+### Setup
+
+1. **Create log directory:**
+   ```bash
+   sudo mkdir -p /var/log
+   sudo touch /var/log/keycloak-sync.log
+   sudo chown $USER /var/log/keycloak-sync.log
+   ```
+
+2. **Create environment file** on VPS:
+   ```bash
+   # /opt/pfn_mcp/sync.env
+   KEYCLOAK_URL=https://auth.forsanusa.id
+   KEYCLOAK_REALM=pfn
+   KEYCLOAK_ADMIN_USER=admin
+   KEYCLOAK_ADMIN_PASSWORD=your-password-here
+   VALKYRIE_DATABASE_URL=postgresql://postgres:password@88.222.213.96:5432/valkyrie
+   ```
+
+3. **Add crontab entry:**
+   ```bash
+   crontab -e
+   ```
+
+   Add this line (runs every 5 minutes):
+   ```cron
+   */5 * * * * set -a && source /opt/pfn_mcp/sync.env && /opt/pfn_mcp/.venv/bin/python /opt/pfn_mcp/prototype/sync_keycloak_to_valkyrie.py >> /var/log/keycloak-sync.log 2>&1
+   ```
+
+4. **Verify:**
+   ```bash
+   crontab -l                          # List cron jobs
+   tail -f /var/log/keycloak-sync.log  # Watch logs
+   ```
+
+### Manual Run
+
+```bash
+# Dry run (preview changes)
+cd /opt/pfn_mcp
+source sync.env
+.venv/bin/python prototype/sync_keycloak_to_valkyrie.py --dry-run
+
+# Actual sync
+.venv/bin/python prototype/sync_keycloak_to_valkyrie.py
 ```
-
-**Option B: Docker sidecar**
-
-Add service to `docker-compose.yml` that runs sync in a loop with 5-min sleep.
 
 ---
 
