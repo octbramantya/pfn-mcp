@@ -210,6 +210,8 @@ tools:
     description: >-
       Fetch time-series telemetry data for a device.
       Returns aggregated data (avg, min, max, sum, count) with adaptive bucketing.
+      Smart data source selection: uses raw 5-second data for queries ≤4h (within 14 days),
+      15-min aggregated for 4-24h, and pre-aggregated data for longer periods.
       Supports period strings (24h, 7d, 30d) or date ranges.
       Use resolve_device first if device name is ambiguous.
     params:
@@ -236,7 +238,7 @@ tools:
         description: End date (ISO format, defaults to now)
       - name: bucket
         type: string
-        description: "Bucket size: 15min, 1hour, 4hour, 1day, 1week, auto"
+        description: "Bucket size: 5sec (raw data), 15min, 1hour, 4hour, 1day, 1week, auto. Auto selects based on query duration and data availability."
         default: auto
 
   - name: get_quantity_stats

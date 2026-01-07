@@ -1,7 +1,7 @@
 # Telemetry Improvements Plan
 
 **Created:** 2026-01-07
-**Status:** In Progress
+**Status:** Completed
 **Reference:** `docs/playground/time_format.md` (user feedback)
 
 ## Overview

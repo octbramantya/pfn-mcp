@@ -35,6 +35,7 @@ BUCKET_MINUTES = {
 
 # TimescaleDB time_bucket intervals (as timedelta for asyncpg compatibility)
 BUCKET_INTERVALS = {
+    "5sec": timedelta(seconds=5),  # raw data (no aggregation)
     "15min": timedelta(minutes=15),
     "1hour": timedelta(hours=1),
     "4hour": timedelta(hours=4),
@@ -44,12 +45,23 @@ BUCKET_INTERVALS = {
 
 # Human-readable bucket interval labels for display
 BUCKET_LABELS = {
+    "5sec": "5 seconds (raw)",
     "15min": "15 minutes",
     "1hour": "1 hour",
     "4hour": "4 hours",
     "1day": "1 day",
     "1week": "1 week",
 }
+
+# Data source selection thresholds (hours)
+RAW_DATA_THRESHOLD_HOURS = 4  # Use raw data (5-sec) below this
+RAW_AGGREGATED_THRESHOLD_HOURS = 24  # Use raw data with 15-min aggregation below this
+RAW_DATA_RETENTION_DAYS = 14  # Raw data retention period
+
+# Data source types
+DATA_SOURCE_RAW = "telemetry_data"
+DATA_SOURCE_RAW_AGGREGATED = "telemetry_data_aggregated"
+DATA_SOURCE_AGGREGATED = "telemetry_15min_agg"
 
 
 async def resolve_device(
@@ -268,6 +280,120 @@ def select_bucket(time_range: timedelta) -> str:
         return "1week"
 
 
+def select_data_source(time_range: timedelta, query_start: datetime) -> tuple[str, str]:
+    """
+    Select optimal data source and bucket based on query duration and data availability.
+
+    Args:
+        time_range: Duration of the query
+        query_start: Start datetime of the query (naive UTC)
+
+    Returns:
+        Tuple of (data_source, bucket_size)
+
+    Logic:
+        - <= 4 hours AND within 14 days: telemetry_data (raw 5-second)
+        - 4-24 hours AND within 14 days: telemetry_data with 15-min aggregation
+        - > 24 hours OR older than 14 days: telemetry_15min_agg with adaptive bucketing
+    """
+    hours = time_range.total_seconds() / 3600
+
+    # Check if query start is within raw data retention
+    now = datetime.now(UTC).replace(tzinfo=None)
+    days_ago = (now - query_start).days
+    raw_data_available = days_ago <= RAW_DATA_RETENTION_DAYS
+
+    if hours <= RAW_DATA_THRESHOLD_HOURS and raw_data_available:
+        return DATA_SOURCE_RAW, "5sec"
+    elif hours <= RAW_AGGREGATED_THRESHOLD_HOURS and raw_data_available:
+        return DATA_SOURCE_RAW_AGGREGATED, "15min"
+    else:
+        return DATA_SOURCE_AGGREGATED, select_bucket(time_range)
+
+
+async def _query_raw_telemetry(
+    device_id: int,
+    quantity_id: int,
+    query_start: datetime,
+    query_end: datetime,
+) -> list[dict]:
+    """Query raw telemetry_data (5-second intervals)."""
+    query = """
+        SELECT
+            timestamp as time_bucket,
+            value as avg,
+            value as min,
+            value as max,
+            value as sum,
+            1 as count
+        FROM telemetry_data
+        WHERE device_id = $1
+          AND quantity_id = $2
+          AND timestamp >= $3
+          AND timestamp < $4
+        ORDER BY timestamp
+    """
+    return await db.fetch_all(query, device_id, quantity_id, query_start, query_end)
+
+
+async def _query_raw_aggregated_telemetry(
+    device_id: int,
+    quantity_id: int,
+    query_start: datetime,
+    query_end: datetime,
+    bucket_interval: timedelta,
+) -> list[dict]:
+    """Query telemetry_data with time_bucket aggregation."""
+    query = """
+        SELECT
+            time_bucket($1::interval, timestamp) as time_bucket,
+            AVG(value) as avg,
+            MIN(value) as min,
+            MAX(value) as max,
+            SUM(value) as sum,
+            COUNT(*) as count
+        FROM telemetry_data
+        WHERE device_id = $2
+          AND quantity_id = $3
+          AND timestamp >= $4
+          AND timestamp < $5
+        GROUP BY time_bucket($1::interval, timestamp)
+        ORDER BY time_bucket
+    """
+    return await db.fetch_all(
+        query, bucket_interval, device_id, quantity_id, query_start, query_end
+    )
+
+
+async def _query_aggregated_telemetry(
+    device_id: int,
+    quantity_id: int,
+    query_start: datetime,
+    query_end: datetime,
+    bucket_interval: timedelta,
+) -> list[dict]:
+    """Query telemetry_15min_agg with further aggregation."""
+    query = """
+        SELECT
+            time_bucket($1::interval, bucket) as time_bucket,
+            AVG(aggregated_value) as avg,
+            MIN(aggregated_value) as min,
+            MAX(aggregated_value) as max,
+            SUM(aggregated_value) as sum,
+            SUM(sample_count) as count
+        FROM telemetry_15min_agg
+        WHERE device_id = $2
+          AND quantity_id = $3
+          AND bucket >= $4
+          AND bucket < $5
+        GROUP BY time_bucket($1::interval, bucket)
+        ORDER BY time_bucket
+    """
+    return await db.fetch_all(
+        query, bucket_interval, device_id, quantity_id, query_start, query_end
+    )
+
+
 async def _resolve_device_id(
     device_id: int | None, device_name: str | None
 ) -> tuple[int | None, dict | None, str | None]:
@@ -438,46 +564,43 @@ async def get_device_telemetry(
         query_start = now - timedelta(hours=24)
         query_end = now
 
-    # Select bucket size
+    # Select data source and bucket size
     time_range = query_end - query_start
+    valid_buckets = list(BUCKET_LABELS.keys())
+
     if bucket == "auto":
-        selected_bucket = select_bucket(time_range)
-    elif bucket in BUCKET_INTERVALS:
+        data_source, selected_bucket = select_data_source(time_range, query_start)
+    elif bucket in valid_buckets:
         selected_bucket = bucket
+        # Determine data source based on bucket choice
+        if bucket == "5sec":
+            data_source = DATA_SOURCE_RAW
+        else:
+            # Use smart selection but override bucket
+            auto_source, _ = select_data_source(time_range, query_start)
+            data_source = auto_source
     else:
         return {
-            "error": f"Invalid bucket: {bucket}. Use: 15min, 1hour, 4hour, 1day, 1week, auto"
+            "error": f"Invalid bucket: {bucket}. Use: {', '.join(valid_buckets)}, auto"
         }
 
-    bucket_interval = BUCKET_INTERVALS[selected_bucket]
-
-    # Query telemetry data with aggregation
-    # Note: telemetry_15min_agg has aggregated_value and sample_count columns
-    query = """
-        SELECT
-            time_bucket($1::interval, bucket) as time_bucket,
-            AVG(aggregated_value) as avg,
-            MIN(aggregated_value) as min,
-            MAX(aggregated_value) as max,
-            SUM(aggregated_value) as sum,
-            SUM(sample_count) as count
-        FROM telemetry_15min_agg
-        WHERE device_id = $2
-          AND quantity_id = $3
-          AND bucket >= $4
-          AND bucket < $5
-        GROUP BY time_bucket($1::interval, bucket)
-        ORDER BY time_bucket
-    """
-
-    rows = await db.fetch_all(
-        query,
-        bucket_interval,
-        resolved_device_id,
-        resolved_quantity_id,
-        query_start,
-        query_end,
-    )
+    # Execute query based on data source
+    if data_source == DATA_SOURCE_RAW:
+        rows = await _query_raw_telemetry(
+            resolved_device_id, resolved_quantity_id, query_start, query_end
+        )
+    elif data_source == DATA_SOURCE_RAW_AGGREGATED:
+        bucket_interval = BUCKET_INTERVALS.get(selected_bucket, timedelta(minutes=15))
+        rows = await _query_raw_aggregated_telemetry(
+            resolved_device_id, resolved_quantity_id, query_start, query_end,
+            bucket_interval
+        )
+    else:
+        bucket_interval = BUCKET_INTERVALS.get(selected_bucket, timedelta(minutes=15))
+        rows = await _query_aggregated_telemetry(
+            resolved_device_id, resolved_quantity_id, query_start, query_end,
+            bucket_interval
+        )
 
     # Format data points
     data_points = []
@@ -512,6 +635,7 @@ async def get_device_telemetry(
             "end_dt": query_end,  # datetime object for formatter
             "bucket": selected_bucket,
             "bucket_interval": BUCKET_LABELS[selected_bucket],
+            "data_source": data_source,  # which table was used
         },
         "data": data_points,
         "point_count": len(data_points),
@@ -533,11 +657,19 @@ def format_telemetry_response(result: dict) -> str:
     start_str = format_display_datetime(time_range.get("start_dt")) or time_range["start"][:16]
     end_str = format_display_datetime(time_range.get("end_dt")) or time_range["end"][:16]
 
+    # Show data source for transparency (raw = high resolution)
+    data_source = time_range.get("data_source", "")
+    source_note = ""
+    if data_source == DATA_SOURCE_RAW:
+        source_note = " [raw data]"
+    elif data_source == DATA_SOURCE_RAW_AGGREGATED:
+        source_note = " [raw aggregated]"
+
     lines = [
         f"## Telemetry: {device['name']}",
         f"**Quantity**: {quantity['name']} ({quantity['unit'] or '-'})",
         f"**Period**: {start_str} to {end_str} (WIB)",
-        f"**Bucket**: {time_range['bucket']} ({point_count} points)",
+        f"**Bucket**: {time_range['bucket']} ({point_count} points){source_note}",
         "",
     ]
 
