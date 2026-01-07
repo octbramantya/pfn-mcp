@@ -5,6 +5,7 @@ import re
 from datetime import UTC, datetime, timedelta
 
 from pfn_mcp import db
+from pfn_mcp.tools.datetime_utils import format_display_datetime
 from pfn_mcp.tools.quantities import QUANTITY_ALIASES
 from pfn_mcp.tools.resolve import resolve_tenant
 
@@ -483,6 +484,7 @@ async def get_device_telemetry(
     for row in rows:
         point = {
             "time": row["time_bucket"].isoformat() if row["time_bucket"] else None,
+            "time_dt": row["time_bucket"],  # datetime object for formatter
             "avg": round(row["avg"], 3) if row["avg"] is not None else None,
             "min": round(row["min"], 3) if row["min"] is not None else None,
             "max": round(row["max"], 3) if row["max"] is not None else None,
@@ -506,6 +508,8 @@ async def get_device_telemetry(
         "time_range": {
             "start": query_start.isoformat(),
             "end": query_end.isoformat(),
+            "start_dt": query_start,  # datetime object for formatter
+            "end_dt": query_end,  # datetime object for formatter
             "bucket": selected_bucket,
             "bucket_interval": BUCKET_LABELS[selected_bucket],
         },
@@ -525,10 +529,14 @@ def format_telemetry_response(result: dict) -> str:
     data = result["data"]
     point_count = result["point_count"]
 
+    # Format period timestamps in display timezone (UTC+7)
+    start_str = format_display_datetime(time_range.get("start_dt")) or time_range["start"][:16]
+    end_str = format_display_datetime(time_range.get("end_dt")) or time_range["end"][:16]
+
     lines = [
         f"## Telemetry: {device['name']}",
         f"**Quantity**: {quantity['name']} ({quantity['unit'] or '-'})",
-        f"**Period**: {time_range['start'][:19]} to {time_range['end'][:19]}",
+        f"**Period**: {start_str} to {end_str} (WIB)",
         f"**Bucket**: {time_range['bucket']} ({point_count} points)",
         "",
     ]
@@ -558,18 +566,25 @@ def format_telemetry_response(result: dict) -> str:
 
     # Show sample data points (first and last few)
     lines.append("### Data Points")
+
+    def format_point_time(p: dict) -> str:
+        """Format data point timestamp in display timezone."""
+        if p.get("time_dt"):
+            return format_display_datetime(p["time_dt"])
+        return p["time"][:16] if p.get("time") else "?"
+
     if point_count <= 10:
         for p in data:
-            time_str = p["time"][:19] if p["time"] else "?"
+            time_str = format_point_time(p)
             lines.append(f"- {time_str}: avg={p['avg']}, min={p['min']}, max={p['max']}")
     else:
         # Show first 3 and last 3
         for p in data[:3]:
-            time_str = p["time"][:19] if p["time"] else "?"
+            time_str = format_point_time(p)
             lines.append(f"- {time_str}: avg={p['avg']}, min={p['min']}, max={p['max']}")
         lines.append(f"  ... ({point_count - 6} more points) ...")
         for p in data[-3:]:
-            time_str = p["time"][:19] if p["time"] else "?"
+            time_str = format_point_time(p)
             lines.append(f"- {time_str}: avg={p['avg']}, min={p['min']}, max={p['max']}")
 
     return "\n".join(lines)

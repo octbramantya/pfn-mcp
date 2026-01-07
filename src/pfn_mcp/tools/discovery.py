@@ -5,6 +5,7 @@ import logging
 from datetime import UTC, datetime
 
 from pfn_mcp import db
+from pfn_mcp.tools.datetime_utils import format_display_datetime
 from pfn_mcp.tools.quantities import QUANTITY_ALIASES
 from pfn_mcp.tools.resolve import resolve_tenant
 
@@ -196,10 +197,14 @@ def format_device_data_range_response(result: dict) -> str:
     data_range = result["range"]
     summary = result["summary"]
 
+    # Format timestamps in display timezone (WIB)
+    earliest_str = format_display_datetime(data_range["earliest"]) or data_range["earliest"]
+    latest_str = format_display_datetime(data_range["latest"]) or data_range["latest"]
+
     lines.extend([
         "## Overall Data Range",
-        f"- **Earliest**: {data_range['earliest']}",
-        f"- **Latest**: {data_range['latest']}",
+        f"- **Earliest**: {earliest_str} (WIB)",
+        f"- **Latest**: {latest_str} (WIB)",
         f"- **Days of data**: {data_range['days_of_data']}",
         "",
         "## Summary",
@@ -847,11 +852,15 @@ def format_data_freshness_response(result: dict) -> str:
             "no_data": "⚫",
         }.get(status, "❓")
 
+        # Format last reading in display timezone
+        last_reading_str = format_display_datetime(result["last_reading"]) or "Never"
+        tz_suffix = " (WIB)" if result["last_reading"] else ""
+
         lines.extend([
             f"## {device['name']}",
             f"- **Device ID**: {device['id']}",
             f"- **Status**: {status_emoji} {status.upper()}",
-            f"- **Last Reading**: {result['last_reading'] or 'Never'}",
+            f"- **Last Reading**: {last_reading_str}{tz_suffix}",
         ])
         if result["hours_ago"] is not None:
             lines.append(f"- **Hours Ago**: {result['hours_ago']}")

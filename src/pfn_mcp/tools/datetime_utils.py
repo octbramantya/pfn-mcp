@@ -60,11 +60,13 @@ def to_display_tz(dt: datetime | None) -> datetime | None:
     return dt.astimezone(DISPLAY_TZ)
 
 
-def format_display_datetime(dt: datetime | None, fmt: str = "%Y-%m-%d %H:%M") -> str:
+def format_display_datetime(
+    dt: datetime | str | None, fmt: str = "%Y-%m-%d %H:%M"
+) -> str:
     """Format datetime for user display in configured timezone.
 
     Args:
-        dt: Datetime to format (can be naive UTC or aware)
+        dt: Datetime to format (can be naive UTC, aware, or ISO string)
         fmt: strftime format string
 
     Returns:
@@ -72,11 +74,17 @@ def format_display_datetime(dt: datetime | None, fmt: str = "%Y-%m-%d %H:%M") ->
     """
     if dt is None:
         return ""
+    # Handle ISO string input
+    if isinstance(dt, str):
+        try:
+            dt = datetime.fromisoformat(dt.replace("Z", "+00:00"))
+        except ValueError:
+            return dt  # Return as-is if parsing fails
     display_dt = to_display_tz(dt)
     return display_dt.strftime(fmt) if display_dt else ""
 
 
-def format_display_date(dt: datetime | None) -> str:
+def format_display_date(dt: datetime | str | None) -> str:
     """Format datetime as date for user display."""
     return format_display_datetime(dt, "%Y-%m-%d")
 

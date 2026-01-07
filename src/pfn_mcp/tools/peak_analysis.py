@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from typing import Literal
 
 from pfn_mcp import db
+from pfn_mcp.tools.datetime_utils import format_display_datetime
 from pfn_mcp.tools.electricity_cost import parse_period
 from pfn_mcp.tools.group_telemetry import _resolve_asset_devices, _resolve_tag_devices
 from pfn_mcp.tools.telemetry import _resolve_device_id, _resolve_quantity_id
@@ -340,10 +341,14 @@ def format_peak_analysis_response(result: dict) -> str:
 
     unit = quantity.get("unit") or ""
 
+    # Format period timestamps in display timezone (WIB)
+    start_str = format_display_datetime(period["start"]) or period["start"][:16]
+    end_str = format_display_datetime(period["end"]) or period["end"][:16]
+
     lines = [
         f"## Peak Analysis: {group['label']}",
         f"**Quantity**: {quantity['name']} ({unit})",
-        f"**Period**: {period['start']} to {period['end']}",
+        f"**Period**: {start_str} to {end_str} (WIB)",
         f"**Bucket**: {period['bucket']}",
     ]
 
@@ -367,7 +372,8 @@ def format_peak_analysis_response(result: dict) -> str:
     lines.append("")
 
     for i, peak in enumerate(peaks, 1):
-        time_str = peak["time"][:16] if peak["time"] else "?"
+        peak_time = peak["time"]
+        time_str = format_display_datetime(peak_time) or (peak_time[:16] if peak_time else "?")
         val = peak["value"]
         device = peak["device_name"]
 
