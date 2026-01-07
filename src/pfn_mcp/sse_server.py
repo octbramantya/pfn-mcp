@@ -80,7 +80,7 @@ async def root(request: Request):
         "version": settings.server_version,
         "endpoints": {
             "sse": "/sse",
-            "messages": "/messages/",
+            "messages": "/sse/messages/",
             "health": "/health",
         },
     })
@@ -113,8 +113,8 @@ app = Starlette(
     routes=[
         Route("/", endpoint=root, methods=["GET"]),
         Route("/health", endpoint=health_check, methods=["GET"]),
+        Mount("/sse/messages", app=handle_messages),
         Mount("/sse", app=handle_sse),
-        Mount("/messages/", app=handle_messages),
     ],
     lifespan=lifespan,
 )
