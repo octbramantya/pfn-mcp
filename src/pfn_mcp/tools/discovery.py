@@ -396,6 +396,9 @@ def format_find_devices_response(result: dict) -> str:
 async def get_device_info(
     device_id: int | None = None,
     device_name: str | None = None,
+    ip_address: str | None = None,
+    slave_id: int | None = None,
+    tenant: str | None = None,
 ) -> dict:
     """
     Get detailed device information including metadata.
@@ -403,38 +406,133 @@ async def get_device_info(
     Args:
         device_id: Device ID to query
         device_name: Device name (fuzzy search if device_id not provided)
+        ip_address: IP address to search in metadata (requires slave_id)
+        slave_id: Modbus slave ID to search in metadata (requires ip_address)
+        tenant: Tenant name or code filter (optional, narrows search)
 
     Returns:
         Dictionary with full device details including tenant context and metadata
     """
-    if device_id is None and device_name is None:
-        return {"error": "Either device_id or device_name is required"}
+    # Validate parameter combinations
+    has_modbus_search = ip_address is not None or slave_id is not None
+    has_device_search = device_id is not None or device_name is not None
 
-    if device_id is None:
-        device_query = """
-            SELECT
-                d.id,
-                d.display_name,
-                d.device_code,
-                d.is_active,
-                d.created_at,
-                d.updated_at,
-                d.metadata,
-                t.id as tenant_id,
-                t.tenant_name,
-                t.tenant_code
-            FROM devices d
-            JOIN tenants t ON d.tenant_id = t.id
-            WHERE LOWER(d.display_name) LIKE LOWER($1)
-            ORDER BY
-                CASE
-                    WHEN LOWER(d.display_name) = LOWER($2) THEN 0
-                    WHEN LOWER(d.display_name) LIKE LOWER($2) || '%' THEN 1
-                    ELSE 2
-                END
-            LIMIT 1
-        """
-        device = await db.fetch_one(device_query, f"%{device_name}%", device_name)
+    if has_modbus_search:
+        # Modbus search mode requires both ip_address and slave_id
+        if ip_address is None or slave_id is None:
+            return {"error": "Both ip_address and slave_id are required for Modbus search"}
+    elif not has_device_search:
+        return {"error": "Either device_id, device_name, or (ip_address + slave_id) is required"}
+
+    # Resolve tenant filter if provided
+    tenant_id = None
+    if tenant:
+        tenant_id, _, error = await resolve_tenant(tenant)
+        if error:
+            return {"error": error}
+
+    # Search by Modbus parameters (ip_address + slave_id)
+    if has_modbus_search:
+        if tenant_id:
+            device_query = """
+                SELECT
+                    d.id,
+                    d.display_name,
+                    d.device_code,
+                    d.is_active,
+                    d.created_at,
+                    d.updated_at,
+                    d.metadata,
+                    t.id as tenant_id,
+                    t.tenant_name,
+                    t.tenant_code
+                FROM devices d
+                JOIN tenants t ON d.tenant_id = t.id
+                WHERE d.metadata -> 'data_concentrator' ->> 'ip_address' = $1
+                  AND (d.metadata -> 'data_concentrator' ->> 'slave_id')::int = $2
+                  AND d.tenant_id = $3
+            """
+            device = await db.fetch_one(device_query, ip_address, slave_id, tenant_id)
+        else:
+            device_query = """
+                SELECT
+                    d.id,
+                    d.display_name,
+                    d.device_code,
+                    d.is_active,
+                    d.created_at,
+                    d.updated_at,
+                    d.metadata,
+                    t.id as tenant_id,
+                    t.tenant_name,
+                    t.tenant_code
+                FROM devices d
+                JOIN tenants t ON d.tenant_id = t.id
+                WHERE d.metadata -> 'data_concentrator' ->> 'ip_address' = $1
+                  AND (d.metadata -> 'data_concentrator' ->> 'slave_id')::int = $2
+            """
+            device = await db.fetch_one(device_query, ip_address, slave_id)
+
+        if not device:
+            tenant_hint = f" in tenant {tenant}" if tenant else ""
+            msg = f"Device not found with IP {ip_address} and slave_id {slave_id}{tenant_hint}"
+            return {"error": msg}
+
+    # Search by device_name (fuzzy)
+    elif device_id is None:
+        if tenant_id:
+            device_query = """
+                SELECT
+                    d.id,
+                    d.display_name,
+                    d.device_code,
+                    d.is_active,
+                    d.created_at,
+                    d.updated_at,
+                    d.metadata,
+                    t.id as tenant_id,
+                    t.tenant_name,
+                    t.tenant_code
+                FROM devices d
+                JOIN tenants t ON d.tenant_id = t.id
+                WHERE LOWER(d.display_name) LIKE LOWER($1)
+                  AND d.tenant_id = $3
+                ORDER BY
+                    CASE
+                        WHEN LOWER(d.display_name) = LOWER($2) THEN 0
+                        WHEN LOWER(d.display_name) LIKE LOWER($2) || '%' THEN 1
+                        ELSE 2
+                    END
+                LIMIT 1
+            """
+            device = await db.fetch_one(device_query, f"%{device_name}%", device_name, tenant_id)
+        else:
+            device_query = """
+                SELECT
+                    d.id,
+                    d.display_name,
+                    d.device_code,
+                    d.is_active,
+                    d.created_at,
+                    d.updated_at,
+                    d.metadata,
+                    t.id as tenant_id,
+                    t.tenant_name,
+                    t.tenant_code
+                FROM devices d
+                JOIN tenants t ON d.tenant_id = t.id
+                WHERE LOWER(d.display_name) LIKE LOWER($1)
+                ORDER BY
+                    CASE
+                        WHEN LOWER(d.display_name) = LOWER($2) THEN 0
+                        WHEN LOWER(d.display_name) LIKE LOWER($2) || '%' THEN 1
+                        ELSE 2
+                    END
+                LIMIT 1
+            """
+            device = await db.fetch_one(device_query, f"%{device_name}%", device_name)
+
+    # Search by device_id (exact)
     else:
         device_query = """
             SELECT

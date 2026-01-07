@@ -103,3 +103,25 @@ async def energy_quantity_id(db_pool):
         SELECT id FROM quantities WHERE id = 124
     """)
     return result or 124  # Default to 124 if not found
+
+
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
+async def device_with_modbus_metadata(db_pool, sample_tenant):
+    """Get a device that has ip_address and slave_id in metadata."""
+    result = await db.fetch_one("""
+        SELECT
+            d.id,
+            d.display_name,
+            d.device_code,
+            d.tenant_id,
+            d.metadata -> 'data_concentrator' ->> 'ip_address' as ip_address,
+            (d.metadata -> 'data_concentrator' ->> 'slave_id')::int as slave_id
+        FROM devices d
+        WHERE d.tenant_id = $1
+          AND d.is_active = true
+          AND d.metadata -> 'data_concentrator' ->> 'ip_address' IS NOT NULL
+          AND d.metadata -> 'data_concentrator' ->> 'slave_id' IS NOT NULL
+        LIMIT 1
+    """, sample_tenant["id"])
+    # This fixture might return None if no device has metadata
+    return result

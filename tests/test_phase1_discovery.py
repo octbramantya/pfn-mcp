@@ -213,3 +213,91 @@ class TestDataAvailability:
         assert isinstance(result, dict)
         # Should have tenant summary info
         assert "tenant" in result or "device_count" in result or "name" in result
+
+
+class TestModbusSearch:
+    """Tests for Modbus metadata search (ip_address + slave_id)."""
+
+    @pytest.mark.asyncio
+    async def test_search_by_ip_and_slave_id(self, db_pool, device_with_modbus_metadata):
+        """Search for device by IP address and slave ID."""
+        if device_with_modbus_metadata is None:
+            pytest.skip("No device with Modbus metadata found")
+
+        result = await get_device_info(
+            ip_address=device_with_modbus_metadata["ip_address"],
+            slave_id=device_with_modbus_metadata["slave_id"],
+        )
+
+        assert isinstance(result, dict)
+        assert "error" not in result
+        assert "device" in result
+        assert result["device"]["id"] == device_with_modbus_metadata["id"]
+
+    @pytest.mark.asyncio
+    async def test_search_with_tenant_filter(
+        self, db_pool, device_with_modbus_metadata, sample_tenant
+    ):
+        """Search by IP + slave_id with tenant filter."""
+        if device_with_modbus_metadata is None:
+            pytest.skip("No device with Modbus metadata found")
+
+        result = await get_device_info(
+            ip_address=device_with_modbus_metadata["ip_address"],
+            slave_id=device_with_modbus_metadata["slave_id"],
+            tenant=sample_tenant["tenant_code"],
+        )
+
+        assert isinstance(result, dict)
+        assert "error" not in result
+        assert "device" in result
+        assert result["device"]["id"] == device_with_modbus_metadata["id"]
+
+    @pytest.mark.asyncio
+    async def test_search_nonexistent_modbus(self, db_pool):
+        """Search for non-existent IP + slave_id returns error."""
+        result = await get_device_info(
+            ip_address="192.168.255.255",
+            slave_id=999,
+        )
+
+        assert isinstance(result, dict)
+        assert "error" in result
+        assert "not found" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_search_missing_slave_id(self, db_pool):
+        """Providing only ip_address without slave_id returns error."""
+        result = await get_device_info(
+            ip_address="192.168.20.15",
+        )
+
+        assert isinstance(result, dict)
+        assert "error" in result
+        assert "slave_id" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_search_missing_ip_address(self, db_pool):
+        """Providing only slave_id without ip_address returns error."""
+        result = await get_device_info(
+            slave_id=39,
+        )
+
+        assert isinstance(result, dict)
+        assert "error" in result
+        assert "ip_address" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_search_wrong_tenant(self, db_pool, device_with_modbus_metadata):
+        """Search with wrong tenant returns error."""
+        if device_with_modbus_metadata is None:
+            pytest.skip("No device with Modbus metadata found")
+
+        result = await get_device_info(
+            ip_address=device_with_modbus_metadata["ip_address"],
+            slave_id=device_with_modbus_metadata["slave_id"],
+            tenant="NonExistentTenant",
+        )
+
+        assert isinstance(result, dict)
+        assert "error" in result

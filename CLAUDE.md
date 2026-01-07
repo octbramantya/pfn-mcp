@@ -72,7 +72,7 @@ src/pfn_mcp/
 | `compare_device_quantities` | Find shared quantities across multiple devices |
 | `get_device_data_range` | Time range of available data for a device |
 | `find_devices_by_quantity` | Which devices have data for a specific quantity |
-| `get_device_info` | Full device details including metadata (slave_id@IP) |
+| `get_device_info` | Full device details; search by ID, name, or IP+slave_id |
 | `check_data_freshness` | Identify offline/stale/online meters |
 | `get_tenant_summary` | Tenant overview with device counts and models |
 

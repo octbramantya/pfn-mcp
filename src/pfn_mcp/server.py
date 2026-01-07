@@ -215,7 +215,8 @@ async def list_tools() -> list[Tool]:
                 "Get detailed device information including metadata. "
                 "Shows manufacturer, model, Modbus address (slave_id + IP), "
                 "location, and communication protocol. "
-                "Unique key for admins: slave_id@ip_address."
+                "Can search by: device_id, device_name (fuzzy), or ip_address + slave_id. "
+                "Use ip_address + slave_id for direct Modbus lookup (avoids brute-force search)."
             ),
             inputSchema={
                 "type": "object",
@@ -227,6 +228,18 @@ async def list_tools() -> list[Tool]:
                     "device_name": {
                         "type": "string",
                         "description": "Device name (fuzzy search)",
+                    },
+                    "ip_address": {
+                        "type": "string",
+                        "description": "IP address for Modbus search (requires slave_id)",
+                    },
+                    "slave_id": {
+                        "type": "integer",
+                        "description": "Modbus slave ID for Modbus search (requires ip_address)",
+                    },
+                    "tenant": {
+                        "type": "string",
+                        "description": "Tenant name or code filter (optional, narrows search)",
                     },
                 },
                 "required": [],
@@ -883,10 +896,16 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     elif name == "get_device_info":
         device_id = arguments.get("device_id")
         device_name = arguments.get("device_name")
+        ip_address = arguments.get("ip_address")
+        slave_id = arguments.get("slave_id")
+        tenant = arguments.get("tenant")
         try:
             result = await discovery_tool.get_device_info(
                 device_id=device_id,
                 device_name=device_name,
+                ip_address=ip_address,
+                slave_id=slave_id,
+                tenant=tenant,
             )
             response = discovery_tool.format_device_info_response(result)
             return [TextContent(type="text", text=response)]
