@@ -4,6 +4,8 @@
 
 import logging
 from contextlib import asynccontextmanager
+from urllib.parse import parse_qs
+from uuid import UUID
 
 import uvicorn
 from mcp.server.sse import SseServerTransport
@@ -48,8 +50,76 @@ async def handle_sse(scope, receive, send):
 
 
 async def handle_messages(scope, receive, send):
-    """Handle POST messages from MCP client (raw ASGI)."""
+    """Handle POST messages from MCP client (raw ASGI).
+
+    Validates session before delegating to SSE transport to prevent
+    stale sessions from returning 202 Accepted then failing internally.
+    """
     if scope["method"] == "POST":
+        # Extract and validate session_id before accepting the message
+        query_string = scope.get("query_string", b"").decode()
+        params = parse_qs(query_string)
+        session_id_param = params.get("session_id", [None])[0]
+
+        if not session_id_param:
+            await send({
+                "type": "http.response.start",
+                "status": 400,
+                "headers": [[b"content-type", b"text/plain"]],
+            })
+            await send({
+                "type": "http.response.body",
+                "body": b"session_id is required",
+            })
+            return
+
+        try:
+            session_id = UUID(hex=session_id_param)
+        except ValueError:
+            await send({
+                "type": "http.response.start",
+                "status": 400,
+                "headers": [[b"content-type", b"text/plain"]],
+            })
+            await send({
+                "type": "http.response.body",
+                "body": b"Invalid session ID format",
+            })
+            return
+
+        # Check if session exists and is still alive
+        writer = sse_transport._read_stream_writers.get(session_id)
+        if writer is None:
+            logger.warning(f"Session not found: {session_id}")
+            await send({
+                "type": "http.response.start",
+                "status": 404,
+                "headers": [[b"content-type", b"text/plain"]],
+            })
+            await send({
+                "type": "http.response.body",
+                "body": b"Session not found. Please reconnect.",
+            })
+            return
+
+        # Check if the stream writer is closed (stale session)
+        # anyio MemoryObjectSendStream has _closed attribute
+        if getattr(writer, "_closed", False):
+            logger.warning(f"Session stream closed (stale): {session_id}")
+            # Clean up the stale session
+            del sse_transport._read_stream_writers[session_id]
+            await send({
+                "type": "http.response.start",
+                "status": 404,
+                "headers": [[b"content-type", b"text/plain"]],
+            })
+            await send({
+                "type": "http.response.body",
+                "body": b"Session expired. Please reconnect.",
+            })
+            return
+
+        # Session is valid, delegate to transport
         await sse_transport.handle_post_message(scope, receive, send)
     else:
         await send({
