@@ -151,6 +151,40 @@ docker compose down -v  # Remove containers and volumes
                     └─────────────────────┘  └─────────────────┘
 ```
 
+## Keycloak Group → Tenant Mapping
+
+**Task:** `pfn_mcp-nta` - Setup Keycloak groups for tenants
+
+Groups are created in Keycloak matching `tenant_code` from the Valkyrie database:
+
+| Keycloak Group | tenant_id | Tenant Name |
+|----------------|-----------|-------------|
+| `IOP` | 4 | Indo Oil Perkasa |
+| `PME_SITE_1` | 1 | Panca Prima Eka Brothers |
+| `PME_SITE_2` | 2 | Prima Sejati Sejahtera |
+| `PRS` | 3 | Primarajuli Sukses |
+
+**Group Attributes:**
+- `tenant_id`: Database ID for direct lookups
+- `tenant_code`: Same as group name
+- `description`: Human-readable tenant name
+
+**Token Claims:**
+- Claim name: `groups`
+- Included in: ID token, Access token, Userinfo
+- Full path: `false` (just group name, not `/GroupName`)
+
+**How It Works:**
+1. User logs in via Keycloak OAuth
+2. Token includes `groups: ["PRS"]` claim
+3. `pfn_tool_wrapper.py` reads first group as tenant
+4. Tools filter data by tenant_code
+
+**Assigning Users to Groups:**
+1. Keycloak Admin Console → Users → Select user
+2. Groups tab → Join Group → Select tenant group
+3. User's next login will include group in token
+
 ## Next Steps
 
 1. **Connect to real PFN MCP**: Replace mock `_call_mcp()` with actual MCP client
