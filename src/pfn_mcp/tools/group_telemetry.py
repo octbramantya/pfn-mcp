@@ -67,6 +67,152 @@ def select_group_bucket(
     return "1week"
 
 
+def is_instantaneous_quantity(quantity_info: dict) -> bool:
+    """
+    Check if a quantity is instantaneous (not cumulative).
+
+    Instantaneous quantities (voltage, power, current) should use nearest-value
+    sampling when aggregating to larger buckets, not AVG.
+
+    Cumulative quantities (energy) should use SUM.
+
+    Args:
+        quantity_info: Quantity info dict with aggregation_method field
+
+    Returns:
+        True if instantaneous, False if cumulative
+    """
+    agg_method = (quantity_info.get("aggregation_method") or "avg").lower()
+    return agg_method not in CUMULATIVE_METHODS
+
+
+async def _query_nearest_value_timeseries(
+    device_ids: list[int],
+    quantity_id: int,
+    query_start: datetime,
+    query_end: datetime,
+    bucket_interval: timedelta,
+) -> list[dict]:
+    """
+    Query time-series with nearest-value sampling for instantaneous quantities.
+
+    Instead of AVG, picks the 15-min bucket value nearest to the START of each
+    larger time bucket. This preserves actual readings at regular intervals.
+
+    Args:
+        device_ids: List of device IDs to query
+        quantity_id: Quantity ID
+        query_start: Start datetime
+        query_end: End datetime
+        bucket_interval: Target bucket size (e.g., timedelta(hours=1))
+
+    Returns:
+        List of dicts with time_bucket, device_id, device_name, value
+    """
+    # Params: $1=bucket_interval, $2=quantity_id, $3=start, $4=end, $5+=device_ids
+    device_placeholders = ", ".join(f"${i+5}" for i in range(len(device_ids)))
+
+    # DISTINCT ON picks one row per (device_id, time_bucket) combination
+    # ORDER BY bucket ASC ensures we get the earliest 15-min bucket within each time bucket
+    # (i.e., nearest to the bucket start)
+    query = f"""
+        SELECT DISTINCT ON (t.device_id, time_bucket($1::interval, t.bucket))
+            time_bucket($1::interval, t.bucket) as time_bucket,
+            t.device_id,
+            d.display_name as device_name,
+            t.aggregated_value as value
+        FROM telemetry_15min_agg t
+        JOIN devices d ON t.device_id = d.id
+        WHERE t.quantity_id = $2
+          AND t.bucket >= $3
+          AND t.bucket < $4
+          AND t.device_id IN ({device_placeholders})
+        ORDER BY t.device_id, time_bucket($1::interval, t.bucket), t.bucket ASC
+    """
+
+    rows = await db.fetch_all(
+        query,
+        bucket_interval,
+        quantity_id,
+        query_start,
+        query_end,
+        *device_ids,
+    )
+
+    return [
+        {
+            "time_bucket": row["time_bucket"],
+            "device_id": row["device_id"],
+            "device_name": row["device_name"],
+            "value": float(row["value"]) if row["value"] is not None else None,
+        }
+        for row in rows
+    ]
+
+
+async def _query_avg_value_timeseries(
+    device_ids: list[int],
+    quantity_id: int,
+    query_start: datetime,
+    query_end: datetime,
+    bucket_interval: timedelta,
+    is_cumulative: bool,
+) -> list[dict]:
+    """
+    Query time-series with AVG/SUM aggregation for cumulative quantities.
+
+    Args:
+        device_ids: List of device IDs to query
+        quantity_id: Quantity ID
+        query_start: Start datetime
+        query_end: End datetime
+        bucket_interval: Target bucket size
+        is_cumulative: If True, use SUM; otherwise use AVG
+
+    Returns:
+        List of dicts with time_bucket, device_id, device_name, value
+    """
+    # Params: $1=bucket_interval, $2=quantity_id, $3=start, $4=end, $5+=device_ids
+    device_placeholders = ", ".join(f"${i+5}" for i in range(len(device_ids)))
+
+    agg_func = "SUM(t.aggregated_value)" if is_cumulative else "AVG(t.aggregated_value)"
+
+    query = f"""
+        SELECT
+            time_bucket($1::interval, t.bucket) as time_bucket,
+            t.device_id,
+            d.display_name as device_name,
+            {agg_func} as value
+        FROM telemetry_15min_agg t
+        JOIN devices d ON t.device_id = d.id
+        WHERE t.quantity_id = $2
+          AND t.bucket >= $3
+          AND t.bucket < $4
+          AND t.device_id IN ({device_placeholders})
+        GROUP BY time_bucket($1::interval, t.bucket), t.device_id, d.display_name
+        ORDER BY time_bucket, t.device_id
+    """
+
+    rows = await db.fetch_all(
+        query,
+        bucket_interval,
+        quantity_id,
+        query_start,
+        query_end,
+        *device_ids,
+    )
+
+    return [
+        {
+            "time_bucket": row["time_bucket"],
+            "device_id": row["device_id"],
+            "device_name": row["device_name"],
+            "value": float(row["value"]) if row["value"] is not None else None,
+        }
+        for row in rows
+    ]
+
+
 async def list_tags(
     tag_key: str | None = None,
     tag_category: str | None = None,

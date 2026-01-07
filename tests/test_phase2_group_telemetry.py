@@ -8,9 +8,12 @@ from datetime import timedelta
 import pytest
 
 from pfn_mcp.tools.group_telemetry import (
+    _query_avg_value_timeseries,
+    _query_nearest_value_timeseries,
     _resolve_multi_tag_devices,
     compare_groups,
     get_group_telemetry,
+    is_instantaneous_quantity,
     list_tag_values,
     list_tags,
     search_tags,
@@ -521,3 +524,139 @@ class TestOutputParameter:
 
         assert isinstance(result, dict)
         assert "summary" in result or "error" in result
+
+
+class TestInstantaneousDetection:
+    """Tests for is_instantaneous_quantity helper."""
+
+    def test_instantaneous_avg_method(self):
+        """Quantity with avg aggregation is instantaneous."""
+        qty_info = {"aggregation_method": "avg"}
+        assert is_instantaneous_quantity(qty_info) is True
+
+    def test_instantaneous_average_method(self):
+        """Quantity with average aggregation is instantaneous."""
+        qty_info = {"aggregation_method": "average"}
+        assert is_instantaneous_quantity(qty_info) is True
+
+    def test_instantaneous_mean_method(self):
+        """Quantity with mean aggregation is instantaneous."""
+        qty_info = {"aggregation_method": "mean"}
+        assert is_instantaneous_quantity(qty_info) is True
+
+    def test_cumulative_sum_method(self):
+        """Quantity with sum aggregation is cumulative."""
+        qty_info = {"aggregation_method": "sum"}
+        assert is_instantaneous_quantity(qty_info) is False
+
+    def test_cumulative_total_method(self):
+        """Quantity with total aggregation is cumulative."""
+        qty_info = {"aggregation_method": "total"}
+        assert is_instantaneous_quantity(qty_info) is False
+
+    def test_default_is_instantaneous(self):
+        """No aggregation method defaults to instantaneous."""
+        qty_info = {}
+        assert is_instantaneous_quantity(qty_info) is True
+
+    def test_none_aggregation_method(self):
+        """None aggregation method defaults to instantaneous."""
+        qty_info = {"aggregation_method": None}
+        assert is_instantaneous_quantity(qty_info) is True
+
+    def test_case_insensitive(self):
+        """Aggregation method is case-insensitive."""
+        assert is_instantaneous_quantity({"aggregation_method": "SUM"}) is False
+        assert is_instantaneous_quantity({"aggregation_method": "AVG"}) is True
+
+
+class TestNearestValueSampling:
+    """Tests for nearest-value and avg-value timeseries queries."""
+
+    @pytest.mark.asyncio
+    async def test_nearest_value_returns_list(self, db_pool, sample_device):
+        """Nearest-value query returns list of dicts."""
+        if sample_device is None:
+            pytest.skip("No devices available")
+
+        from datetime import datetime, timezone
+
+        end = datetime.now(timezone.utc).replace(tzinfo=None)
+        start = end - timedelta(days=1)
+
+        result = await _query_nearest_value_timeseries(
+            device_ids=[sample_device["id"]],
+            quantity_id=185,  # Active Power
+            query_start=start,
+            query_end=end,
+            bucket_interval=timedelta(hours=1),
+        )
+
+        assert isinstance(result, list)
+        # May be empty if no data, but structure should be correct
+        if result:
+            first = result[0]
+            assert "time_bucket" in first
+            assert "device_id" in first
+            assert "device_name" in first
+            assert "value" in first
+
+    @pytest.mark.asyncio
+    async def test_avg_value_returns_list(self, db_pool, sample_device):
+        """Avg-value query returns list of dicts."""
+        if sample_device is None:
+            pytest.skip("No devices available")
+
+        from datetime import datetime, timezone
+
+        end = datetime.now(timezone.utc).replace(tzinfo=None)
+        start = end - timedelta(days=1)
+
+        result = await _query_avg_value_timeseries(
+            device_ids=[sample_device["id"]],
+            quantity_id=185,  # Active Power
+            query_start=start,
+            query_end=end,
+            bucket_interval=timedelta(hours=1),
+            is_cumulative=False,
+        )
+
+        assert isinstance(result, list)
+        if result:
+            first = result[0]
+            assert "time_bucket" in first
+            assert "device_id" in first
+            assert "device_name" in first
+            assert "value" in first
+
+    @pytest.mark.asyncio
+    async def test_nearest_value_multi_device(self, db_pool):
+        """Nearest-value query works with multiple devices."""
+        from datetime import datetime, timezone
+        from pfn_mcp import db
+
+        # Get two devices
+        devices = await db.fetch_all(
+            "SELECT id FROM devices WHERE is_active = true LIMIT 2"
+        )
+        if len(devices) < 2:
+            pytest.skip("Not enough devices")
+
+        device_ids = [d["id"] for d in devices]
+        end = datetime.now(timezone.utc).replace(tzinfo=None)
+        start = end - timedelta(days=1)
+
+        result = await _query_nearest_value_timeseries(
+            device_ids=device_ids,
+            quantity_id=185,
+            query_start=start,
+            query_end=end,
+            bucket_interval=timedelta(hours=4),
+        )
+
+        assert isinstance(result, list)
+        # Each device should have at most one row per time bucket
+        if result:
+            # Check that device_ids in result are from our list
+            result_device_ids = {r["device_id"] for r in result}
+            assert result_device_ids.issubset(set(device_ids))
