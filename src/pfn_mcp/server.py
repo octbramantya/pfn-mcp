@@ -14,6 +14,7 @@ from pfn_mcp.tools import device_quantities as device_quantities_tool
 from pfn_mcp.tools import devices as devices_tool
 from pfn_mcp.tools import discovery as discovery_tool
 from pfn_mcp.tools import electricity_cost as electricity_cost_tool
+from pfn_mcp.tools import energy_consumption as energy_consumption_tool
 from pfn_mcp.tools import group_telemetry as group_telemetry_tool
 from pfn_mcp.tools import peak_analysis as peak_analysis_tool
 from pfn_mcp.tools import quantities as quantities_tool
@@ -256,6 +257,25 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text=response)]
         except Exception as e:
             logger.error(f"get_quantity_stats failed: {e}")
+            return [TextContent(type="text", text=f"Error: {e}")]
+
+    elif name == "get_energy_consumption":
+        try:
+            result = await energy_consumption_tool.get_energy_consumption(
+                device_id=arguments.get("device_id"),
+                device_name=arguments.get("device_name"),
+                quantity_id=arguments.get("quantity_id"),
+                quantity_search=arguments.get("quantity_search"),
+                period=arguments.get("period"),
+                start_date=arguments.get("start_date"),
+                end_date=arguments.get("end_date"),
+                bucket=arguments.get("bucket", "auto"),
+                include_quality_info=arguments.get("include_quality_info", False),
+            )
+            response = energy_consumption_tool.format_energy_consumption_response(result)
+            return [TextContent(type="text", text=response)]
+        except Exception as e:
+            logger.error(f"get_energy_consumption failed: {e}")
             return [TextContent(type="text", text=f"Error: {e}")]
 
     elif name == "get_electricity_cost":

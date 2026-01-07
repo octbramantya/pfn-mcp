@@ -63,6 +63,15 @@ DATA_SOURCE_RAW = "telemetry_data"
 DATA_SOURCE_RAW_AGGREGATED = "telemetry_data_aggregated"
 DATA_SOURCE_AGGREGATED = "telemetry_15min_agg"
 
+# Cumulative/Energy quantity IDs - these return meter readings, not consumption
+# Users should use get_energy_consumption for actual consumption values
+CUMULATIVE_QUANTITY_IDS = {62, 89, 96, 124, 130, 131, 481}
+
+
+def is_cumulative_quantity(quantity_id: int) -> bool:
+    """Check if a quantity ID is cumulative (energy) type."""
+    return quantity_id in CUMULATIVE_QUANTITY_IDS
+
 
 async def resolve_device(
     search: str,
@@ -616,7 +625,7 @@ async def get_device_telemetry(
         }
         data_points.append(point)
 
-    return {
+    result = {
         "device": {
             "id": device_info["id"],
             "name": device_info.get("display_name") or device_info.get("device_code"),
@@ -640,6 +649,20 @@ async def get_device_telemetry(
         "data": data_points,
         "point_count": len(data_points),
     }
+
+    # Add warning for cumulative quantities (energy)
+    if is_cumulative_quantity(resolved_quantity_id):
+        result["warning"] = {
+            "type": "cumulative_quantity",
+            "message": (
+                f"Note: {quantity_info['quantity_name']} is a cumulative (meter reading) "
+                "quantity. The values shown are meter readings, not consumption. "
+                "For actual consumption, use `get_energy_consumption` instead."
+            ),
+            "recommendation": "get_energy_consumption",
+        }
+
+    return result
 
 
 def format_telemetry_response(result: dict) -> str:
@@ -672,6 +695,13 @@ def format_telemetry_response(result: dict) -> str:
         f"**Bucket**: {time_range['bucket']} ({point_count} points){source_note}",
         "",
     ]
+
+    # Show warning for cumulative quantities
+    if "warning" in result:
+        warning = result["warning"]
+        lines.append(f"**Warning**: {warning['message']}")
+        lines.append(f"Recommended tool: `{warning['recommendation']}`")
+        lines.append("")
 
     if point_count == 0:
         lines.append("No data available for this period.")

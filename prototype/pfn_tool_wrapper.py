@@ -169,6 +169,11 @@ class Tools:
         tenant = self._get_tenant_code(__user__)
         return await self._call_mcp("get_quantity_stats", {"tenant": tenant, "device_id": device_id, "quantity_search": quantity, "period": period})
 
+    async def get_energy_consumption(self, device: str = "", period: str = "7d", bucket: str = "auto", __user__: dict = None) -> str:
+        """Get energy consumption (actual kWh, not meter readings)."""
+        tenant = self._get_tenant_code(__user__)
+        return await self._call_mcp("get_energy_consumption", {"tenant": tenant, "device_name": device, "period": period, "bucket": bucket})
+
     async def find_devices_by_quantity(self, quantity: str, __user__: dict = None) -> str:
         """Find devices that have data for a specific quantity."""
         tenant = self._get_tenant_code(__user__)

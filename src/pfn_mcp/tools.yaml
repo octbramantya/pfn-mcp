@@ -213,6 +213,8 @@ tools:
       Smart data source selection: uses raw 5-second data for queries ≤4h (within 14 days),
       15-min aggregated for 4-24h, and pre-aggregated data for longer periods.
       Supports period strings (24h, 7d, 30d) or date ranges.
+      **For energy quantities (Active Energy, etc.), use get_energy_consumption instead** -
+      this tool returns cumulative meter readings, not actual consumption.
       Use resolve_device first if device name is ambiguous.
     params:
       - name: device_id
@@ -263,6 +265,45 @@ tools:
         type: string
         description: "Time period to check (default: 30d)"
         default: 30d
+
+  - name: get_energy_consumption
+    tenant_aware: true
+    description: >-
+      Get energy consumption for a device.
+      Returns actual consumption (not cumulative meter readings) calculated from
+      interval deltas. Handles meter resets and data anomalies automatically.
+      Smart data source: daily_energy_cost_summary for daily+, telemetry_intervals_cumulative for sub-daily.
+      Default quantity: Active Energy. Use for energy queries instead of get_device_telemetry.
+    params:
+      - name: device_id
+        type: integer
+        description: Device ID (preferred over device_name)
+      - name: device_name
+        type: string
+        description: Device name (fuzzy search)
+      - name: quantity_id
+        type: integer
+        description: "Energy quantity ID (e.g., 124 for Active Energy Delivered)"
+      - name: quantity_search
+        type: string
+        description: "Quantity search: energy, active energy, reactive energy, apparent energy"
+      - name: period
+        type: string
+        description: "Time period: 1h, 24h, 7d, 30d, 3M, 1Y (default: 7d)"
+      - name: start_date
+        type: string
+        description: Start date (ISO format, alternative to period)
+      - name: end_date
+        type: string
+        description: End date (ISO format, defaults to now)
+      - name: bucket
+        type: string
+        description: "Bucket size: 15min, 1hour, 4hour, 1day, 1week, auto"
+        default: auto
+      - name: include_quality_info
+        type: boolean
+        description: "Include data quality breakdown in response (default: false)"
+        default: false
 
   # ===========================================================================
   # PHASE 2: Electricity Cost Tools

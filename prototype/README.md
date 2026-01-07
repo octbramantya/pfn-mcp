@@ -160,8 +160,6 @@ Groups are created in Keycloak matching `tenant_code` from the Valkyrie database
 | Keycloak Group | tenant_id | Tenant Name |
 |----------------|-----------|-------------|
 | `IOP` | 4 | Indo Oil Perkasa |
-| `PME_SITE_1` | 1 | Panca Prima Eka Brothers |
-| `PME_SITE_2` | 2 | Prima Sejati Sejahtera |
 | `PRS` | 3 | Primarajuli Sukses |
 
 **Group Attributes:**
@@ -234,6 +232,40 @@ GF_AUTH_DISABLE_LOGIN_FORM=true
 | (any other) | Viewer |
 
 To grant admin access, add user to `Admin` group in Keycloak.
+
+### Organization Mapping
+
+**Task:** `pfn_mcp-25t` - Setup: Grafana org mapping with Keycloak groups
+
+Map Keycloak tenant groups to Grafana organizations so users are auto-assigned to the correct org on login.
+
+**Prerequisites:**
+Grafana organizations must exist (use org IDs in mapping):
+- Org 5: Primarajuli Sukses (PRS)
+- Org 6: Indo Oil Perkasa (IOP)
+
+**Configuration (grafana.ini):**
+```ini
+[auth.generic_oauth]
+# Extract groups array from OAuth token
+org_attribute_path = groups
+
+# Map Keycloak groups to Grafana organizations
+# Format: <KeycloakGroup>:<GrafanaOrgId>:<Role>
+org_mapping = PRS:5:Viewer IOP:6:Viewer
+```
+
+**How It Works:**
+1. User logs in via Keycloak OAuth
+2. Token includes `groups: ["PRS"]` claim
+3. Grafana matches group to org via `org_mapping`
+4. User is assigned to matching Grafana org with specified role
+
+**Notes:**
+- Grafana orgs must be pre-created (no auto-creation)
+- Regular users: single group assignment
+- Superusers: can be in multiple groups → access to multiple orgs
+- Full config: `docs/grafana_ini_oauth.txt`
 
 ## Next Steps
 

@@ -84,8 +84,9 @@ src/pfn_mcp/
 | Tool | Description |
 |------|-------------|
 | `resolve_device` | Confirm device selection before telemetry queries (exact/partial/fuzzy match confidence) |
-| `get_device_telemetry` | Fetch time-series data with adaptive bucketing (15min→1week based on range) |
+| `get_device_telemetry` | Fetch time-series data with adaptive bucketing (15min→1week based on range). For energy, use `get_energy_consumption` instead |
 | `get_quantity_stats` | Pre-flight validation: data availability, completeness %, value ranges |
+| `get_energy_consumption` | Get actual energy consumption (not meter readings) with cost. Smart data source: daily or sub-daily |
 
 ## Available Tools (Phase 2 - Electricity Cost)
 

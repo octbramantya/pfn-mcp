@@ -57,7 +57,20 @@ api_url = https://auth.forsanusa.id/realms/pfn/protocol/openid-connect/userinfo
 email_attribute_path = email
 login_attribute_path = preferred_username
 name_attribute_path = name
-# Simple static role - all OAuth users get Viewer
+# Role attribute - static Viewer for all users
 role_attribute_path = 'Viewer'
+
+# Organization mapping from Keycloak groups
+# Extract groups array from OAuth token
+org_attribute_path = groups
+
+# Map Keycloak groups to Grafana organizations
+# Format: <KeycloakGroup>:<GrafanaOrgIdOrName>:<Role>
+# Using org IDs for reliability (names can change)
+# Grafana Orgs: 5=Primarajuli Sukses (PRS), 6=Indo Oil Perkasa (IOP)
+org_mapping = PRS:5:Viewer IOP:6:Viewer
+
+# Sync org roles on each login (required for org_mapping to work)
 skip_org_role_sync = false
+
 signout_redirect_url = https://auth.forsanusa.id/realms/pfn/protocol/openid-connect/logout?post_logout_redirect_uri=https://viz.forsanusa.id/graf/login
