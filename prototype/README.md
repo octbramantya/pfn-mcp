@@ -185,6 +185,56 @@ Groups are created in Keycloak matching `tenant_code` from the Valkyrie database
 2. Groups tab → Join Group → Select tenant group
 3. User's next login will include group in token
 
+## Grafana SSO with Keycloak
+
+**Task:** `pfn_mcp-dn3` - Setup: Keycloak client for Grafana
+
+### Setup Script
+
+```bash
+# Run from prototype/ directory
+python setup_grafana_keycloak.py --password YOUR_KEYCLOAK_ADMIN_PASSWORD
+```
+
+This creates:
+- OIDC client `grafana` in Keycloak `pfn` realm
+- Group membership mapper (for tenant groups)
+- Role mapper (for Grafana role assignment)
+
+### Grafana Environment Variables
+
+Add these to your Grafana deployment:
+
+```bash
+GF_SERVER_ROOT_URL=https://viz.forsanusa.id
+
+GF_AUTH_GENERIC_OAUTH_ENABLED=true
+GF_AUTH_GENERIC_OAUTH_NAME="Keycloak"
+GF_AUTH_GENERIC_OAUTH_ALLOW_SIGN_UP=true
+GF_AUTH_GENERIC_OAUTH_AUTO_LOGIN=true
+GF_AUTH_GENERIC_OAUTH_CLIENT_ID=grafana
+GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET=<from setup script output>
+GF_AUTH_GENERIC_OAUTH_SCOPES=openid email profile groups
+GF_AUTH_GENERIC_OAUTH_AUTH_URL=https://auth.forsanusa.id/realms/pfn/protocol/openid-connect/auth
+GF_AUTH_GENERIC_OAUTH_TOKEN_URL=https://auth.forsanusa.id/realms/pfn/protocol/openid-connect/token
+GF_AUTH_GENERIC_OAUTH_API_URL=https://auth.forsanusa.id/realms/pfn/protocol/openid-connect/userinfo
+
+# Role mapping (map Keycloak groups to Grafana roles)
+GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH="contains(groups[*], 'Admin') && 'Admin' || 'Viewer'"
+
+# Disable default login to force OAuth
+GF_AUTH_DISABLE_LOGIN_FORM=true
+```
+
+### Role Mapping
+
+| Keycloak Group | Grafana Role |
+|----------------|--------------|
+| `Admin` | Admin |
+| (any other) | Viewer |
+
+To grant admin access, add user to `Admin` group in Keycloak.
+
 ## Next Steps
 
 1. **Connect to real PFN MCP**: Replace mock `_call_mcp()` with actual MCP client

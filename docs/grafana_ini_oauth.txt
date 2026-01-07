@@ -1,0 +1,63 @@
+# Grafana OAuth Configuration for Keycloak
+# Task: pfn_mcp-dn3 - Setup: Keycloak client for Grafana
+# Apply to grafana.ini on VPS
+
+[server]
+# Protocol (http, https, h2, socket)
+protocol = http
+
+# Minimum TLS version allowed. By default, this value is empty. Accepted values are: TLS1.2, TLS1.3. If nothing is set TLS1.2 would be taken
+;min_tls_version = ""
+
+# The ip address to bind to, empty will bind to all interfaces
+http_addr = ::
+
+# The http port to use
+http_port = 4000
+
+# The public facing domain name used to access grafana from a browser
+domain = viz.forsanusa.id
+# Redirect to correct domain if host header does not match domain
+# Prevents DNS rebinding attacks
+;enforce_domain = false
+
+# The full public facing url you use in browser, used for redirects and emails
+# If you use reverse proxy and sub path specify full url (with sub path)
+# NOTE: Hardcode https since we're behind a reverse proxy that handles TLS
+root_url = https://viz.forsanusa.id/graf
+
+# Serve Grafana from subpath specified in `root_url` setting. By default it is set to `false` for compatibility reasons.
+serve_from_sub_path = true
+
+# Log web requests
+;router_logging = false
+
+# the path relative working path
+;static_root_path = public
+
+[users]
+# Required for OAuth user auto-creation
+allow_sign_up = true
+auto_assign_org = true
+auto_assign_org_id = 1
+auto_assign_org_role = Viewer
+
+[auth.generic_oauth]
+name = Keycloak
+icon = signin
+enabled = true
+allow_sign_up = true
+auto_login = true
+client_id = grafana
+client_secret = sXRL2VaFxVEtbGHp1s5KmfBRs5sLFtm1
+scopes = openid email profile groups
+auth_url = https://auth.forsanusa.id/realms/pfn/protocol/openid-connect/auth
+token_url = https://auth.forsanusa.id/realms/pfn/protocol/openid-connect/token
+api_url = https://auth.forsanusa.id/realms/pfn/protocol/openid-connect/userinfo
+email_attribute_path = email
+login_attribute_path = preferred_username
+name_attribute_path = name
+# Simple static role - all OAuth users get Viewer
+role_attribute_path = 'Viewer'
+skip_org_role_sync = false
+signout_redirect_url = https://auth.forsanusa.id/realms/pfn/protocol/openid-connect/logout?post_logout_redirect_uri=https://viz.forsanusa.id/graf/login
