@@ -3,6 +3,8 @@
 Tests for group telemetry aggregation tools.
 """
 
+from datetime import timedelta
+
 import pytest
 
 from pfn_mcp.tools.group_telemetry import (
@@ -12,6 +14,7 @@ from pfn_mcp.tools.group_telemetry import (
     list_tag_values,
     list_tags,
     search_tags,
+    select_group_bucket,
 )
 
 
@@ -438,6 +441,82 @@ class TestMultiTagQueries:
             tag_key=sample_tag["tag_key"],
             tag_value=sample_tag["tag_value"],
             period="7d",
+        )
+
+        assert isinstance(result, dict)
+        assert "summary" in result or "error" in result
+
+
+class TestSmartBucketing:
+    """Tests for select_group_bucket function."""
+
+    def test_select_bucket_short_period_few_devices(self):
+        """Short period with few devices should use fine buckets."""
+        # 1 day, 2 devices, max 200 rows → 100 buckets max → 15min (96 buckets)
+        result = select_group_bucket(timedelta(days=1), device_count=2)
+        assert result == "15min"
+
+    def test_select_bucket_week_few_devices(self):
+        """7 days with few devices."""
+        # 7 days, 2 devices → 100 buckets max → 1hour (168 > 100) → 4hour (42 buckets)
+        result = select_group_bucket(timedelta(days=7), device_count=2)
+        assert result == "4hour"
+
+    def test_select_bucket_week_many_devices(self):
+        """7 days with many devices needs larger buckets."""
+        # 7 days, 20 devices → 10 buckets max → 1day (7 buckets)
+        result = select_group_bucket(timedelta(days=7), device_count=20)
+        assert result == "1day"
+
+    def test_select_bucket_month_few_devices(self):
+        """30 days with few devices."""
+        # 30 days, 5 devices → 40 buckets max → 1day (30 buckets)
+        result = select_group_bucket(timedelta(days=30), device_count=5)
+        assert result == "1day"
+
+    def test_select_bucket_month_many_devices(self):
+        """30 days with many devices needs weekly buckets."""
+        # 30 days, 50 devices → 4 buckets max → 1week (4.3 buckets)
+        result = select_group_bucket(timedelta(days=30), device_count=50)
+        assert result == "1week"
+
+    def test_select_bucket_zero_devices(self):
+        """Zero devices should default to 1."""
+        result = select_group_bucket(timedelta(days=7), device_count=0)
+        assert result in ["15min", "1hour", "4hour", "1day", "1week"]
+
+
+class TestOutputParameter:
+    """Tests for output parameter in get_group_telemetry."""
+
+    @pytest.mark.asyncio
+    async def test_output_default_is_summary(self, db_pool, sample_tag):
+        """Default output mode should be summary."""
+        if sample_tag is None:
+            pytest.skip("No tags available in database")
+
+        result = await get_group_telemetry(
+            tag_key=sample_tag["tag_key"],
+            tag_value=sample_tag["tag_value"],
+            period="7d",
+            # output not specified, should default to "summary"
+        )
+
+        assert isinstance(result, dict)
+        # Should have summary structure (current behavior)
+        assert "summary" in result or "error" in result
+
+    @pytest.mark.asyncio
+    async def test_output_explicit_summary(self, db_pool, sample_tag):
+        """Explicit summary output should work."""
+        if sample_tag is None:
+            pytest.skip("No tags available in database")
+
+        result = await get_group_telemetry(
+            tag_key=sample_tag["tag_key"],
+            tag_value=sample_tag["tag_value"],
+            period="7d",
+            output="summary",
         )
 
         assert isinstance(result, dict)

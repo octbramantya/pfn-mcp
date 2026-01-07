@@ -6,7 +6,7 @@ from typing import Literal
 
 from pfn_mcp import db
 from pfn_mcp.tools.electricity_cost import parse_period
-from pfn_mcp.tools.telemetry import _resolve_quantity_id
+from pfn_mcp.tools.telemetry import BUCKET_MINUTES, _resolve_quantity_id
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +17,54 @@ ACTIVE_ENERGY_QTY_ID = 124
 # "SUM" for cumulative quantities (energy), "AVG" for instantaneous (power, voltage)
 CUMULATIVE_METHODS = {"sum", "total", "cumulative"}
 INSTANTANEOUS_METHODS = {"avg", "average", "mean", "instantaneous"}
+
+# Output modes for get_group_telemetry
+OutputMode = Literal["summary", "timeseries", "per_device"]
+
+# Default max rows for timeseries output
+DEFAULT_MAX_ROWS = 200
+
+
+def select_group_bucket(
+    time_range: timedelta,
+    device_count: int,
+    max_rows: int = DEFAULT_MAX_ROWS,
+) -> str:
+    """
+    Select optimal bucket size to keep total rows under limit.
+
+    Args:
+        time_range: Duration of the query
+        device_count: Number of devices in the group
+        max_rows: Maximum rows to return (default: 200)
+
+    Returns:
+        Bucket size string (e.g., "15min", "1hour", "1day")
+
+    Example:
+        7 days, 5 devices, max 200 rows:
+        - 15min: 672 buckets × 5 = 3360 rows (too many)
+        - 1hour: 168 buckets × 5 = 840 rows (too many)
+        - 4hour: 42 buckets × 5 = 210 rows (close)
+        - 1day: 7 buckets × 5 = 35 rows (fits) ← selected
+    """
+    if device_count <= 0:
+        device_count = 1
+
+    target_buckets = max_rows // device_count
+    total_minutes = time_range.total_seconds() / 60
+
+    # Sorted bucket sizes from smallest to largest
+    bucket_order = ["15min", "1hour", "4hour", "1day", "1week"]
+
+    for bucket_name in bucket_order:
+        bucket_minutes = BUCKET_MINUTES.get(bucket_name, 15)
+        num_buckets = total_minutes / bucket_minutes
+        if num_buckets <= target_buckets:
+            return bucket_name
+
+    # If even 1week is too fine, use 1week anyway
+    return "1week"
 
 
 async def list_tags(
@@ -459,6 +507,7 @@ async def get_group_telemetry(
     start_date: str | None = None,
     end_date: str | None = None,
     breakdown: Literal["none", "device", "daily"] = "none",
+    output: OutputMode = "summary",
 ) -> dict:
     """
     Get aggregated telemetry for a group of devices.
@@ -479,10 +528,14 @@ async def get_group_telemetry(
         period: Time period - "7d", "1M", "2025-12", etc.
         start_date: Explicit start date (YYYY-MM-DD)
         end_date: Explicit end date (YYYY-MM-DD)
-        breakdown: Breakdown type - "none", "device", "daily"
+        breakdown: Breakdown type - "none", "device", "daily" (for summary output)
+        output: Output mode - "summary" (default), "timeseries", "per_device"
 
     Returns:
-        Dictionary with group summary and optional breakdown
+        Dictionary with group data based on output mode:
+        - summary: Aggregated totals/averages (current behavior)
+        - timeseries: Time-aligned rows per device [{time, device_1, device_2, ...}]
+        - per_device: Per-device aggregation without time-series
     """
     # Validate grouping parameters
     if tags and len(tags) > 0:
@@ -537,6 +590,9 @@ async def get_group_telemetry(
     # Determine if using custom quantity or default electricity
     use_custom_quantity = quantity_id is not None or quantity_search is not None
 
+    # Calculate time range for smart bucketing
+    time_range = query_end - query_start
+
     if use_custom_quantity:
         # Resolve quantity for WAGE telemetry
         resolved_qty_id, qty_info, error = await _resolve_quantity_id(
@@ -544,6 +600,9 @@ async def get_group_telemetry(
         )
         if error:
             return {"error": error}
+
+        # Select optimal bucket for timeseries/per_device output
+        selected_bucket = select_group_bucket(time_range, device_count)
 
         return await _get_telemetry_group_summary(
             device_ids=device_ids,
@@ -559,6 +618,8 @@ async def get_group_telemetry(
             start_str=start_str,
             end_str=end_str,
             breakdown=breakdown,
+            output=output,
+            selected_bucket=selected_bucket,
         )
     else:
         # Default: electricity consumption/cost
@@ -574,6 +635,7 @@ async def get_group_telemetry(
             start_str=start_str,
             end_str=end_str,
             breakdown=breakdown,
+            output=output,
         )
 
 
@@ -589,8 +651,16 @@ async def _get_electricity_group_summary(
     start_str: str,
     end_str: str,
     breakdown: str,
+    output: OutputMode = "summary",
 ) -> dict:
-    """Get electricity consumption/cost summary from daily_energy_cost_summary."""
+    """Get electricity consumption/cost summary from daily_energy_cost_summary.
+
+    Note: Electricity data uses daily_energy_cost_summary which is pre-aggregated daily.
+    timeseries/per_device output modes will be implemented in a future update.
+    """
+    # TODO: Implement timeseries/per_device for electricity (uses daily buckets)
+    if output != "summary":
+        logger.warning(f"output={output} not yet implemented for electricity, using summary")
     device_placeholders = ", ".join(f"${i+4}" for i in range(len(device_ids)))
 
     summary_query = f"""
@@ -667,8 +737,18 @@ async def _get_telemetry_group_summary(
     start_str: str,
     end_str: str,
     breakdown: str,
+    output: OutputMode = "summary",
+    selected_bucket: str = "1hour",
 ) -> dict:
-    """Get WAGE telemetry summary from telemetry_15min_agg."""
+    """Get WAGE telemetry summary from telemetry_15min_agg.
+
+    Args:
+        output: Output mode - "summary", "timeseries", "per_device"
+        selected_bucket: Bucket size for timeseries output (from select_group_bucket)
+    """
+    # TODO: Implement timeseries/per_device output modes (bead pfn_mcp-4ll)
+    if output != "summary":
+        logger.info(f"output={output} with bucket={selected_bucket} - implementation pending")
     device_placeholders = ", ".join(f"${i+4}" for i in range(len(device_ids)))
 
     # Determine aggregation method from quantity info
