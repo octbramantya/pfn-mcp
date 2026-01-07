@@ -1,4 +1,6 @@
 """SSE/HTTP transport for MCP server - enables remote deployment."""
+  # NOTE: In production, this server must NOT be exposed to public internet.
+  # It should only be accessible from the internal Docker network (Open WebUI).
 
 import logging
 from contextlib import asynccontextmanager
