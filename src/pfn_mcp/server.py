@@ -506,13 +506,14 @@ async def run_server():
             return_when=asyncio.FIRST_COMPLETED,
         )
 
-        # Cancel pending tasks
+        # Cancel pending tasks with timeout
         for task in pending:
             task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+        if pending:
+            # Wait briefly for tasks to cancel, then give up
+            _, still_pending = await asyncio.wait(pending, timeout=1.0)
+            if still_pending:
+                logger.warning(f"{len(still_pending)} task(s) did not cancel in time")
 
     finally:
         # Close database pool with timeout
