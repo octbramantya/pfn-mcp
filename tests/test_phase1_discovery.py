@@ -52,21 +52,25 @@ class TestTenantDeviceDiscovery:
         search_term = sample_device["display_name"][:3]
         result = await list_devices(search=search_term)
 
-        assert isinstance(result, list)
+        assert isinstance(result, dict)
+        assert "devices" in result
+        devices = result["devices"]
         # Should find at least the sample device
-        assert len(result) > 0
-        assert "display_name" in result[0]
+        assert len(devices) > 0
+        assert "display_name" in devices[0]
 
     @pytest.mark.asyncio
     async def test_fuzzy_match_prefix_handling(self, db_pool):
         """Scenario #4: Find devices containing 'MC-1' (should NOT match MC-10, MC-11)."""
         result = await list_devices(search="MC-1", limit=20)
 
-        assert isinstance(result, list)
+        assert isinstance(result, dict)
+        assert "devices" in result
+        devices = result["devices"]
         # Verify fuzzy ranking is applied (exact/partial matches ranked higher)
-        if len(result) > 0:
-            assert "display_name" in result[0]
-            assert "match_score" in result[0] or "rank" in result[0] or True  # Structure check
+        if len(devices) > 0:
+            assert "display_name" in devices[0]
+            assert "match_score" in devices[0] or "rank" in devices[0] or True  # Structure check
 
     @pytest.mark.asyncio
     async def test_get_device_details(self, db_pool, sample_device):

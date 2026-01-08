@@ -19,9 +19,11 @@ class TestEdgeCases:
         """Scenario #54: Search for device 'nonexistent' (empty results)."""
         result = await list_devices(search="nonexistent_device_xyz_12345")
 
-        assert isinstance(result, list)
+        assert isinstance(result, dict)
+        assert "devices" in result
         # Should return empty list, not error
-        assert len(result) == 0
+        assert len(result["devices"]) == 0
+        assert result["total"] == 0
 
     @pytest.mark.asyncio
     async def test_telemetry_outside_retention(self, db_pool, sample_device, power_quantity_id):

@@ -149,10 +149,10 @@ class Tools:
     # TENANT-AWARE TOOLS (inject tenant)
     # =========================================================================
 
-    async def list_devices(self, search: str = "", __user__: dict = None) -> str:
-        """List energy monitoring devices."""
+    async def list_devices(self, search: str = "", limit: int = 20, offset: int = 0, __user__: dict = None) -> str:
+        """List energy monitoring devices with pagination."""
         tenant = self._get_tenant_code(__user__)
-        return await self._call_mcp("list_devices", {"tenant": tenant, "search": search})
+        return await self._call_mcp("list_devices", {"tenant": tenant, "search": search, "limit": limit, "offset": offset})
 
     async def resolve_device(self, search: str, __user__: dict = None) -> str:
         """Resolve device name to ID with match confidence."""

@@ -64,13 +64,15 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         search = arguments.get("search")
         tenant = arguments.get("tenant")
         limit = arguments.get("limit", 20)
+        offset = arguments.get("offset", 0)
         try:
-            results = await devices_tool.list_devices(
+            result = await devices_tool.list_devices(
                 search=search,
                 tenant=tenant,
                 limit=limit,
+                offset=offset,
             )
-            response = devices_tool.format_devices_response(results, search)
+            response = devices_tool.format_devices_response(result, search)
             return [TextContent(type="text", text=response)]
         except Exception as e:
             logger.error(f"list_devices failed: {e}")
