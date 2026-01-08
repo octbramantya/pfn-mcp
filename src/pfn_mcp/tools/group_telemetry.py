@@ -869,6 +869,87 @@ async def _get_electricity_group_summary(
     return result_dict
 
 
+async def _get_telemetry_timeseries(
+    device_ids: list[int],
+    device_names: list[str],
+    quantity_id: int,
+    quantity_info: dict,
+    query_start: datetime,
+    query_end: datetime,
+    selected_bucket: str,
+) -> list[dict]:
+    """
+    Get time-series data pivoted into time-aligned rows.
+
+    Returns rows like: [{time: "2025-01-01T00:00", device_1: 100, device_2: 150, ...}]
+    where device keys are display names.
+
+    Args:
+        device_ids: List of device IDs
+        device_names: List of device names (parallel to device_ids)
+        quantity_id: Quantity ID
+        quantity_info: Quantity metadata dict
+        query_start: Start datetime
+        query_end: End datetime
+        selected_bucket: Bucket size string (e.g., "1hour", "1day")
+
+    Returns:
+        List of time-aligned dicts with device values as columns
+    """
+    # Convert bucket string to timedelta
+    bucket_interval = timedelta(minutes=BUCKET_MINUTES.get(selected_bucket, 60))
+
+    # Determine query method based on quantity type
+    is_instantaneous = is_instantaneous_quantity(quantity_info)
+
+    if is_instantaneous:
+        # Use nearest-value sampling for instantaneous quantities
+        rows = await _query_nearest_value_timeseries(
+            device_ids=device_ids,
+            quantity_id=quantity_id,
+            query_start=query_start,
+            query_end=query_end,
+            bucket_interval=bucket_interval,
+        )
+    else:
+        # Use AVG/SUM for cumulative quantities
+        is_cumulative = not is_instantaneous
+        rows = await _query_avg_value_timeseries(
+            device_ids=device_ids,
+            quantity_id=quantity_id,
+            query_start=query_start,
+            query_end=query_end,
+            bucket_interval=bucket_interval,
+            is_cumulative=is_cumulative,
+        )
+
+    if not rows:
+        return []
+
+    # Build device_id -> name mapping
+    id_to_name = dict(zip(device_ids, device_names))
+
+    # Pivot: group by time_bucket, create dict with device names as keys
+    time_data: dict[datetime, dict] = {}
+
+    for row in rows:
+        time_bucket = row["time_bucket"]
+        device_id = row["device_id"]
+        value = row["value"]
+
+        # Get device name (use name from our list, fallback to query result)
+        device_name = id_to_name.get(device_id, row.get("device_name", f"device_{device_id}"))
+
+        if time_bucket not in time_data:
+            time_data[time_bucket] = {"time": time_bucket.isoformat()}
+
+        time_data[time_bucket][device_name] = value
+
+    # Sort by time and return as list
+    sorted_times = sorted(time_data.keys())
+    return [time_data[t] for t in sorted_times]
+
+
 async def _get_telemetry_group_summary(
     device_ids: list[int],
     device_names: list[str],
@@ -891,10 +972,57 @@ async def _get_telemetry_group_summary(
     Args:
         output: Output mode - "summary", "timeseries", "per_device"
         selected_bucket: Bucket size for timeseries output (from select_group_bucket)
+
+    For instantaneous quantities (voltage, power, current):
+    - Auto-enables device breakdown when breakdown="none" and multiple devices
+    - Skips percentage calculation (nonsensical for instantaneous values)
+    - Adds min/max with device attribution in summary
     """
-    # TODO: Implement timeseries/per_device output modes (bead pfn_mcp-4ll)
-    if output != "summary":
-        logger.info(f"output={output} with bucket={selected_bucket} - implementation pending")
+    # Check if quantity is instantaneous
+    is_instantaneous = is_instantaneous_quantity(quantity_info)
+
+    # For instantaneous quantities with multiple devices: auto-enable device breakdown
+    # A single average across all devices is meaningless for voltage/power
+    if is_instantaneous and breakdown == "none" and device_count > 1 and output == "summary":
+        breakdown = "device"
+
+    # Handle timeseries output mode
+    if output == "timeseries":
+        timeseries = await _get_telemetry_timeseries(
+            device_ids=device_ids,
+            device_names=device_names,
+            quantity_id=quantity_id,
+            quantity_info=quantity_info,
+            query_start=query_start,
+            query_end=query_end,
+            selected_bucket=selected_bucket,
+        )
+
+        unit = quantity_info.get("unit") or ""
+        agg_method = (quantity_info.get("aggregation_method") or "avg").lower()
+        is_cumulative = agg_method in CUMULATIVE_METHODS
+
+        return {
+            "group": {
+                "type": group_type,
+                "label": group_label,
+                "result_type": result_type,
+                "device_count": device_count,
+                "devices": device_names,
+            },
+            "quantity": {
+                "id": quantity_id,
+                "name": quantity_info["quantity_name"],
+                "unit": unit,
+                "aggregation": "sum" if is_cumulative else "nearest",
+            },
+            "timeseries": {
+                "bucket": selected_bucket,
+                "period": f"{start_str} to {end_str}",
+                "row_count": len(timeseries),
+                "data": timeseries,
+            },
+        }
     device_placeholders = ", ".join(f"${i+4}" for i in range(len(device_ids)))
 
     # Determine aggregation method from quantity info
@@ -943,6 +1071,56 @@ async def _get_telemetry_group_summary(
 
     unit = quantity_info.get("unit") or ""
 
+    # For instantaneous quantities, find which devices had min/max values
+    min_device = None
+    max_device = None
+    if is_instantaneous and min_value is not None and max_value is not None and device_count > 1:
+        # Query to find device with min value
+        min_device_query = f"""
+            SELECT d.display_name, t.aggregated_value, t.bucket
+            FROM telemetry_15min_agg t
+            JOIN devices d ON t.device_id = d.id
+            WHERE t.quantity_id = $1
+              AND t.bucket >= $2
+              AND t.bucket < $3
+              AND t.device_id IN ({device_placeholders})
+              AND t.aggregated_value = $4
+            LIMIT 1
+        """
+        min_row = await db.fetch_one(
+            min_device_query,
+            quantity_id,
+            query_start,
+            query_end,
+            *device_ids,
+            min_value,
+        )
+        if min_row:
+            min_device = min_row["display_name"]
+
+        # Query to find device with max value
+        max_device_query = f"""
+            SELECT d.display_name, t.aggregated_value, t.bucket
+            FROM telemetry_15min_agg t
+            JOIN devices d ON t.device_id = d.id
+            WHERE t.quantity_id = $1
+              AND t.bucket >= $2
+              AND t.bucket < $3
+              AND t.device_id IN ({device_placeholders})
+              AND t.aggregated_value = $4
+            LIMIT 1
+        """
+        max_row = await db.fetch_one(
+            max_device_query,
+            quantity_id,
+            query_start,
+            query_end,
+            *device_ids,
+            max_value,
+        )
+        if max_row:
+            max_device = max_row["display_name"]
+
     result_dict = {
         "group": {
             "type": group_type,
@@ -957,11 +1135,14 @@ async def _get_telemetry_group_summary(
             "name": quantity_info["quantity_name"],
             "unit": unit,
             "aggregation": agg_label,
+            "is_instantaneous": is_instantaneous,
         },
         "summary": {
             f"{agg_label}_value": round(agg_value, 2),
             "min_value": round(min_value, 2) if min_value else None,
             "max_value": round(max_value, 2) if max_value else None,
+            "min_device": min_device,
+            "max_device": max_device,
             "unit": unit,
             "period": f"{start_str} to {end_str}",
             "days_with_data": days_with_data,
@@ -971,7 +1152,8 @@ async def _get_telemetry_group_summary(
 
     if breakdown == "device":
         breakdown_data = await _get_telemetry_device_breakdown(
-            device_ids, quantity_id, query_start, query_end, agg_value, is_cumulative
+            device_ids, quantity_id, query_start, query_end, agg_value,
+            is_cumulative, is_instantaneous
         )
         result_dict["breakdown"] = breakdown_data
     elif breakdown == "daily":
@@ -990,8 +1172,17 @@ async def _get_telemetry_device_breakdown(
     end_dt: datetime,
     total_value: float,
     is_cumulative: bool,
+    is_instantaneous: bool = False,
 ) -> list[dict]:
-    """Get per-device breakdown for telemetry data."""
+    """Get per-device breakdown for telemetry data.
+
+    For instantaneous quantities (voltage, power):
+    - Shows avg value per device with min/max
+    - Skips percentage (nonsensical for instantaneous values)
+
+    For cumulative quantities (energy):
+    - Shows total per device with percentage of group total
+    """
     device_placeholders = ", ".join(f"${i+4}" for i in range(len(device_ids)))
 
     if is_cumulative:
@@ -1029,16 +1220,22 @@ async def _get_telemetry_device_breakdown(
         agg_value = float(row.get("agg_value", 0) or 0)
         min_val = float(row.get("min_value", 0) or 0) if row.get("min_value") else None
         max_val = float(row.get("max_value", 0) or 0) if row.get("max_value") else None
-        pct = 100 * agg_value / total_value if total_value > 0 else 0
 
-        breakdown.append({
+        item = {
             "device": row.get("device"),
             "device_id": row.get("device_id"),
             "value": round(agg_value, 2),
             "min": round(min_val, 2) if min_val else None,
             "max": round(max_val, 2) if max_val else None,
-            "percentage": round(pct, 1),
-        })
+        }
+
+        # Only add percentage for cumulative quantities (energy)
+        # Percentage is meaningless for instantaneous quantities (voltage, power)
+        if not is_instantaneous:
+            pct = 100 * agg_value / total_value if total_value > 0 else 0
+            item["percentage"] = round(pct, 1)
+
+        breakdown.append(item)
 
     return breakdown
 
@@ -1197,15 +1394,93 @@ async def _get_daily_breakdown(
     return breakdown
 
 
+def _format_timeseries_response(
+    result: dict,
+    group: dict,
+    result_type: str,
+    devices: list[str],
+) -> str:
+    """Format timeseries output for human-readable display."""
+    qty = result["quantity"]
+    ts = result["timeseries"]
+    data = ts.get("data", [])
+
+    # Format header based on result type
+    if result_type == "single_meter":
+        header = f"## {group['label']} (single meter: {devices[0]})"
+    elif result_type == "combined_meters":
+        device_list = " + ".join(devices)
+        header = f"## {group['label']} (combined: {device_list})"
+    else:
+        header = f"## {group['label']} ({group['device_count']} devices)"
+
+    lines = [
+        header,
+        f"**Quantity**: {qty['name']} ({qty['unit']})",
+        f"**Period**: {ts['period']}",
+        f"**Bucket**: {ts['bucket']}",
+        f"**Rows**: {ts['row_count']}",
+        "",
+        "### Time Series Data",
+        "",
+    ]
+
+    if not data:
+        lines.append("_No data available for this period._")
+        return "\n".join(lines)
+
+    unit = qty.get("unit", "")
+
+    # Create table header from device names
+    device_cols = [d for d in devices if d != "time"]
+
+    # Build markdown table
+    header_row = "| Time | " + " | ".join(device_cols) + " |"
+    separator = "|------|" + "|".join(["------"] * len(device_cols)) + "|"
+    lines.extend([header_row, separator])
+
+    # Limit rows for display (show first 20, indicate if more)
+    display_limit = 20
+    for row in data[:display_limit]:
+        time_str = row.get("time", "?")
+        # Truncate ISO time for readability
+        if "T" in time_str:
+            time_str = time_str.replace("T", " ")[:16]
+
+        values = []
+        for device in device_cols:
+            val = row.get(device)
+            if val is not None:
+                values.append(f"{val:,.2f}")
+            else:
+                values.append("-")
+
+        row_str = f"| {time_str} | " + " | ".join(values) + " |"
+        lines.append(row_str)
+
+    if len(data) > display_limit:
+        lines.append(f"| ... | {len(data) - display_limit} more rows ... |")
+
+    lines.append("")
+    lines.append(f"_Values in {unit}_")
+
+    return "\n".join(lines)
+
+
 def format_group_telemetry_response(result: dict) -> str:
     """Format get_group_telemetry response for human-readable output."""
     if "error" in result:
         return f"Error: {result['error']}"
 
     group = result["group"]
-    summary = result["summary"]
     result_type = group.get("result_type", "aggregated_group")
     devices = group.get("devices", [])
+
+    # Handle timeseries output format
+    if "timeseries" in result:
+        return _format_timeseries_response(result, group, result_type, devices)
+
+    summary = result["summary"]
 
     # Check if this is WAGE telemetry (has quantity info)
     is_wage = "quantity" in result
@@ -1244,16 +1519,27 @@ def format_group_telemetry_response(result: dict) -> str:
         qty = result["quantity"]
         unit = qty.get("unit", "")
         agg = qty.get("aggregation", "value")
+        is_instantaneous = qty.get("is_instantaneous", False)
 
         # Get the aggregated value key (total_value or average_value)
         agg_key = f"{agg}_value"
         agg_value = summary.get(agg_key, 0)
 
         lines.append(f"- **{agg.title()}**: {agg_value:,.2f} {unit}")
+
+        # Show min/max with device attribution for instantaneous quantities
         if summary.get("min_value") is not None:
-            lines.append(f"- **Min**: {summary['min_value']:,.2f} {unit}")
+            min_line = f"- **Min**: {summary['min_value']:,.2f} {unit}"
+            if is_instantaneous and summary.get("min_device"):
+                min_line += f" ({summary['min_device']})"
+            lines.append(min_line)
+
         if summary.get("max_value") is not None:
-            lines.append(f"- **Max**: {summary['max_value']:,.2f} {unit}")
+            max_line = f"- **Max**: {summary['max_value']:,.2f} {unit}"
+            if is_instantaneous and summary.get("max_device"):
+                max_line += f" ({summary['max_device']})"
+            lines.append(max_line)
+
         if summary.get("data_points"):
             lines.append(f"- **Data points**: {summary['data_points']:,}")
     else:
@@ -1276,13 +1562,28 @@ def format_group_telemetry_response(result: dict) -> str:
             # WAGE telemetry breakdown
             qty = result["quantity"]
             unit = qty.get("unit", "")
+            is_instantaneous = qty.get("is_instantaneous", False)
 
             if "device" in first:
                 for item in breakdown:
                     device = item.get("device", "?")
                     value = item["value"]
-                    pct = item["percentage"]
-                    lines.append(f"- **{device}**: {value:,.2f} {unit} ({pct}%)")
+                    min_val = item.get("min")
+                    max_val = item.get("max")
+
+                    if is_instantaneous:
+                        # For instantaneous: show avg with min/max range, no percentage
+                        if min_val is not None and max_val is not None:
+                            lines.append(
+                                f"- **{device}**: avg {value:,.2f} {unit} "
+                                f"(range: {min_val:,.2f} - {max_val:,.2f})"
+                            )
+                        else:
+                            lines.append(f"- **{device}**: {value:,.2f} {unit}")
+                    else:
+                        # For cumulative: show value with percentage
+                        pct = item.get("percentage", 0)
+                        lines.append(f"- **{device}**: {value:,.2f} {unit} ({pct}%)")
             elif "date" in first:
                 for item in breakdown:
                     date = item.get("date", "?")

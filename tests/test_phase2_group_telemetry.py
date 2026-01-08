@@ -3,7 +3,7 @@
 Tests for group telemetry aggregation tools.
 """
 
-from datetime import timedelta
+from datetime import UTC, timedelta
 
 import pytest
 
@@ -12,6 +12,7 @@ from pfn_mcp.tools.group_telemetry import (
     _query_nearest_value_timeseries,
     _resolve_multi_tag_devices,
     compare_groups,
+    format_group_telemetry_response,
     get_group_telemetry,
     is_instantaneous_quantity,
     list_tag_values,
@@ -570,6 +571,263 @@ class TestInstantaneousDetection:
         assert is_instantaneous_quantity({"aggregation_method": "AVG"}) is True
 
 
+class TestTimeseriesFormatter:
+    """Tests for timeseries output formatting."""
+
+    def test_format_timeseries_basic(self):
+        """Format timeseries output produces valid markdown."""
+        result = {
+            "group": {
+                "type": "tag",
+                "label": "process=Compressor",
+                "result_type": "aggregated_group",
+                "device_count": 2,
+                "devices": ["Comp-01", "Comp-02"],
+            },
+            "quantity": {
+                "id": 185,
+                "name": "Active Power",
+                "unit": "kW",
+                "aggregation": "nearest",
+            },
+            "timeseries": {
+                "bucket": "1hour",
+                "period": "2025-01-01 to 2025-01-07",
+                "row_count": 2,
+                "data": [
+                    {"time": "2025-01-01T00:00:00", "Comp-01": 100.5, "Comp-02": 150.3},
+                    {"time": "2025-01-01T01:00:00", "Comp-01": 102.1, "Comp-02": 148.7},
+                ],
+            },
+        }
+
+        formatted = format_group_telemetry_response(result)
+
+        assert "process=Compressor" in formatted
+        assert "Active Power" in formatted
+        assert "kW" in formatted
+        assert "1hour" in formatted
+        assert "Time Series Data" in formatted
+        assert "Comp-01" in formatted
+        assert "Comp-02" in formatted
+
+    def test_format_timeseries_empty_data(self):
+        """Format timeseries with no data shows message."""
+        result = {
+            "group": {
+                "type": "tag",
+                "label": "process=Empty",
+                "result_type": "single_meter",
+                "device_count": 1,
+                "devices": ["Device-01"],
+            },
+            "quantity": {
+                "id": 185,
+                "name": "Active Power",
+                "unit": "kW",
+                "aggregation": "nearest",
+            },
+            "timeseries": {
+                "bucket": "1hour",
+                "period": "2025-01-01 to 2025-01-07",
+                "row_count": 0,
+                "data": [],
+            },
+        }
+
+        formatted = format_group_telemetry_response(result)
+
+        assert "No data available" in formatted
+
+    def test_format_timeseries_single_meter(self):
+        """Format single meter timeseries shows device name."""
+        result = {
+            "group": {
+                "type": "tag",
+                "label": "process=Single",
+                "result_type": "single_meter",
+                "device_count": 1,
+                "devices": ["Only-Device"],
+            },
+            "quantity": {
+                "id": 185,
+                "name": "Active Power",
+                "unit": "kW",
+                "aggregation": "nearest",
+            },
+            "timeseries": {
+                "bucket": "1hour",
+                "period": "2025-01-01 to 2025-01-07",
+                "row_count": 1,
+                "data": [{"time": "2025-01-01T00:00:00", "Only-Device": 100.0}],
+            },
+        }
+
+        formatted = format_group_telemetry_response(result)
+
+        assert "single meter" in formatted
+        assert "Only-Device" in formatted
+
+
+class TestTimeseriesOutput:
+    """Tests for timeseries output mode in get_group_telemetry."""
+
+    @pytest.mark.asyncio
+    async def test_timeseries_output_returns_correct_structure(self, db_pool, sample_tag):
+        """Timeseries output should return group, quantity, and timeseries keys."""
+        if sample_tag is None:
+            pytest.skip("No tags available in database")
+
+        result = await get_group_telemetry(
+            tag_key=sample_tag["tag_key"],
+            tag_value=sample_tag["tag_value"],
+            quantity_search="power",
+            period="7d",
+            output="timeseries",
+        )
+
+        assert isinstance(result, dict)
+        # Should have timeseries structure (not summary)
+        if "error" not in result:
+            assert "timeseries" in result
+            assert "group" in result
+            assert "quantity" in result
+            assert "summary" not in result  # Not present in timeseries output
+
+    @pytest.mark.asyncio
+    async def test_timeseries_data_has_time_and_device_columns(self, db_pool, sample_tag):
+        """Timeseries data rows should have time and device columns."""
+        if sample_tag is None:
+            pytest.skip("No tags available in database")
+
+        result = await get_group_telemetry(
+            tag_key=sample_tag["tag_key"],
+            tag_value=sample_tag["tag_value"],
+            quantity_search="power",
+            period="7d",
+            output="timeseries",
+        )
+
+        if "error" in result:
+            pytest.skip("No data available")
+
+        ts = result["timeseries"]
+        assert "data" in ts
+        assert "bucket" in ts
+        assert "period" in ts
+        assert "row_count" in ts
+
+        data = ts["data"]
+        if data:
+            first_row = data[0]
+            assert "time" in first_row
+            # Should have at least one device column besides time
+            assert len(first_row) > 1
+
+    @pytest.mark.asyncio
+    async def test_timeseries_bucket_info(self, db_pool, sample_tag):
+        """Timeseries should include bucket size information."""
+        if sample_tag is None:
+            pytest.skip("No tags available in database")
+
+        result = await get_group_telemetry(
+            tag_key=sample_tag["tag_key"],
+            tag_value=sample_tag["tag_value"],
+            quantity_search="power",
+            period="7d",
+            output="timeseries",
+        )
+
+        if "error" in result:
+            pytest.skip("No data available")
+
+        ts = result["timeseries"]
+        # Bucket should be one of the valid bucket sizes
+        valid_buckets = ["15min", "1hour", "4hour", "1day", "1week"]
+        assert ts["bucket"] in valid_buckets
+
+    @pytest.mark.asyncio
+    async def test_timeseries_row_count_matches_data(self, db_pool, sample_tag):
+        """row_count should match actual data length."""
+        if sample_tag is None:
+            pytest.skip("No tags available in database")
+
+        result = await get_group_telemetry(
+            tag_key=sample_tag["tag_key"],
+            tag_value=sample_tag["tag_value"],
+            quantity_search="power",
+            period="7d",
+            output="timeseries",
+        )
+
+        if "error" in result:
+            pytest.skip("No data available")
+
+        ts = result["timeseries"]
+        assert ts["row_count"] == len(ts["data"])
+
+    @pytest.mark.asyncio
+    async def test_timeseries_with_cumulative_quantity(self, db_pool, sample_tag):
+        """Timeseries works with cumulative quantities (energy)."""
+        if sample_tag is None:
+            pytest.skip("No tags available in database")
+
+        result = await get_group_telemetry(
+            tag_key=sample_tag["tag_key"],
+            tag_value=sample_tag["tag_value"],
+            quantity_id=124,  # Active Energy Delivered
+            period="7d",
+            output="timeseries",
+        )
+
+        assert isinstance(result, dict)
+        if "error" not in result:
+            assert "timeseries" in result
+            # Cumulative should use sum aggregation
+            assert result["quantity"]["aggregation"] == "sum"
+
+    @pytest.mark.asyncio
+    async def test_timeseries_with_instantaneous_quantity(self, db_pool, sample_tag):
+        """Timeseries works with instantaneous quantities (power)."""
+        if sample_tag is None:
+            pytest.skip("No tags available in database")
+
+        result = await get_group_telemetry(
+            tag_key=sample_tag["tag_key"],
+            tag_value=sample_tag["tag_value"],
+            quantity_id=185,  # Active Power
+            period="7d",
+            output="timeseries",
+        )
+
+        assert isinstance(result, dict)
+        if "error" not in result:
+            assert "timeseries" in result
+            # Instantaneous should use nearest aggregation
+            assert result["quantity"]["aggregation"] == "nearest"
+
+    @pytest.mark.asyncio
+    async def test_timeseries_empty_data(self, db_pool, sample_tag):
+        """Timeseries with no data returns empty list."""
+        if sample_tag is None:
+            pytest.skip("No tags available in database")
+
+        # Query very old period that likely has no data
+        result = await get_group_telemetry(
+            tag_key=sample_tag["tag_key"],
+            tag_value=sample_tag["tag_value"],
+            quantity_search="power",
+            start_date="2010-01-01",
+            end_date="2010-01-02",
+            output="timeseries",
+        )
+
+        if "error" not in result:
+            ts = result["timeseries"]
+            assert ts["row_count"] == 0
+            assert ts["data"] == []
+
+
 class TestNearestValueSampling:
     """Tests for nearest-value and avg-value timeseries queries."""
 
@@ -579,9 +837,9 @@ class TestNearestValueSampling:
         if sample_device is None:
             pytest.skip("No devices available")
 
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        end = datetime.now(timezone.utc).replace(tzinfo=None)
+        end = datetime.now(UTC).replace(tzinfo=None)
         start = end - timedelta(days=1)
 
         result = await _query_nearest_value_timeseries(
@@ -607,9 +865,9 @@ class TestNearestValueSampling:
         if sample_device is None:
             pytest.skip("No devices available")
 
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        end = datetime.now(timezone.utc).replace(tzinfo=None)
+        end = datetime.now(UTC).replace(tzinfo=None)
         start = end - timedelta(days=1)
 
         result = await _query_avg_value_timeseries(
@@ -632,7 +890,8 @@ class TestNearestValueSampling:
     @pytest.mark.asyncio
     async def test_nearest_value_multi_device(self, db_pool):
         """Nearest-value query works with multiple devices."""
-        from datetime import datetime, timezone
+        from datetime import datetime
+
         from pfn_mcp import db
 
         # Get two devices
@@ -643,7 +902,7 @@ class TestNearestValueSampling:
             pytest.skip("Not enough devices")
 
         device_ids = [d["id"] for d in devices]
-        end = datetime.now(timezone.utc).replace(tzinfo=None)
+        end = datetime.now(UTC).replace(tzinfo=None)
         start = end - timedelta(days=1)
 
         result = await _query_nearest_value_timeseries(
@@ -660,3 +919,255 @@ class TestNearestValueSampling:
             # Check that device_ids in result are from our list
             result_device_ids = {r["device_id"] for r in result}
             assert result_device_ids.issubset(set(device_ids))
+
+
+class TestInstantaneousQuantityHandling:
+    """Tests for instantaneous quantity aggregation fixes (beads-d3o).
+
+    For instantaneous quantities (voltage, power, current):
+    - Auto-enables device breakdown when multiple devices
+    - Skips percentage in device breakdown
+    - Adds min/max with device attribution
+    """
+
+    @pytest.mark.asyncio
+    async def test_instantaneous_auto_device_breakdown(self, db_pool, sample_tag):
+        """Instantaneous quantity with multiple devices auto-enables device breakdown."""
+        if sample_tag is None:
+            pytest.skip("No tags available in database")
+
+        result = await get_group_telemetry(
+            tag_key=sample_tag["tag_key"],
+            tag_value=sample_tag["tag_value"],
+            quantity_search="power",  # Instantaneous quantity
+            period="7d",
+            # breakdown not specified, should auto-enable for instantaneous
+        )
+
+        if "error" in result:
+            pytest.skip("No data available for test")
+
+        # Should auto-enable device breakdown for instantaneous with multiple devices
+        if result["group"]["device_count"] > 1:
+            assert "breakdown" in result, "Should auto-enable device breakdown for instantaneous"
+
+    @pytest.mark.asyncio
+    async def test_instantaneous_no_percentage_in_breakdown(self, db_pool, sample_tag):
+        """Instantaneous quantity device breakdown has no percentage."""
+        if sample_tag is None:
+            pytest.skip("No tags available in database")
+
+        result = await get_group_telemetry(
+            tag_key=sample_tag["tag_key"],
+            tag_value=sample_tag["tag_value"],
+            quantity_search="power",  # Instantaneous quantity
+            period="7d",
+            breakdown="device",
+        )
+
+        if "error" in result:
+            pytest.skip("No data available for test")
+
+        if "breakdown" in result and result["breakdown"]:
+            first_item = result["breakdown"][0]
+            # Instantaneous quantities should NOT have percentage
+            assert "percentage" not in first_item, (
+                "Instantaneous breakdown should not have percentage"
+            )
+            # Should still have min/max
+            assert "min" in first_item
+            assert "max" in first_item
+
+    @pytest.mark.asyncio
+    async def test_cumulative_has_percentage_in_breakdown(self, db_pool, sample_tag):
+        """Cumulative quantity device breakdown still has percentage."""
+        if sample_tag is None:
+            pytest.skip("No tags available in database")
+
+        result = await get_group_telemetry(
+            tag_key=sample_tag["tag_key"],
+            tag_value=sample_tag["tag_value"],
+            quantity_id=124,  # Active Energy Delivered - cumulative
+            period="7d",
+            breakdown="device",
+        )
+
+        if "error" in result:
+            pytest.skip("No data available for test")
+
+        if "breakdown" in result and result["breakdown"]:
+            first_item = result["breakdown"][0]
+            # Cumulative quantities SHOULD have percentage
+            assert "percentage" in first_item, (
+                "Cumulative breakdown should have percentage"
+            )
+
+    @pytest.mark.asyncio
+    async def test_instantaneous_summary_has_device_attribution(self, db_pool, sample_tag):
+        """Instantaneous summary includes min/max device attribution."""
+        if sample_tag is None:
+            pytest.skip("No tags available in database")
+
+        result = await get_group_telemetry(
+            tag_key=sample_tag["tag_key"],
+            tag_value=sample_tag["tag_value"],
+            quantity_search="power",  # Instantaneous quantity
+            period="7d",
+        )
+
+        if "error" in result:
+            pytest.skip("No data available for test")
+
+        summary = result.get("summary", {})
+        # Should have min_device and max_device keys (may be None if no data)
+        assert "min_device" in summary, "Summary should have min_device key"
+        assert "max_device" in summary, "Summary should have max_device key"
+
+    @pytest.mark.asyncio
+    async def test_quantity_has_is_instantaneous_flag(self, db_pool, sample_tag):
+        """Quantity info includes is_instantaneous flag."""
+        if sample_tag is None:
+            pytest.skip("No tags available in database")
+
+        # Test with instantaneous quantity
+        result = await get_group_telemetry(
+            tag_key=sample_tag["tag_key"],
+            tag_value=sample_tag["tag_value"],
+            quantity_search="power",
+            period="7d",
+        )
+
+        if "error" in result:
+            pytest.skip("No data available for test")
+
+        qty = result.get("quantity", {})
+        assert "is_instantaneous" in qty, "Quantity should have is_instantaneous flag"
+        assert qty["is_instantaneous"] is True, "Power should be instantaneous"
+
+    @pytest.mark.asyncio
+    async def test_cumulative_is_instantaneous_false(self, db_pool, sample_tag):
+        """Cumulative quantity has is_instantaneous=False."""
+        if sample_tag is None:
+            pytest.skip("No tags available in database")
+
+        result = await get_group_telemetry(
+            tag_key=sample_tag["tag_key"],
+            tag_value=sample_tag["tag_value"],
+            quantity_id=124,  # Active Energy Delivered - cumulative
+            period="7d",
+        )
+
+        if "error" in result:
+            pytest.skip("No data available for test")
+
+        qty = result.get("quantity", {})
+        assert qty.get("is_instantaneous") is False, "Energy should not be instantaneous"
+
+    def test_format_instantaneous_breakdown_no_percentage(self):
+        """Formatter shows min/max range instead of percentage for instantaneous."""
+        result = {
+            "group": {
+                "type": "tag",
+                "label": "process=Compressor",
+                "result_type": "aggregated_group",
+                "device_count": 3,
+                "devices_with_data": 3,
+                "devices": ["Comp-01", "Comp-02", "Comp-03"],
+            },
+            "quantity": {
+                "id": 185,
+                "name": "Active Power",
+                "unit": "kW",
+                "aggregation": "average",
+                "is_instantaneous": True,
+            },
+            "summary": {
+                "average_value": 150.0,
+                "min_value": 100.0,
+                "max_value": 200.0,
+                "min_device": "Comp-01",
+                "max_device": "Comp-03",
+                "unit": "kW",
+                "period": "2025-01-01 to 2025-01-07",
+                "days_with_data": 7,
+                "data_points": 100,
+            },
+            "breakdown": [
+                {"device": "Comp-01", "device_id": 1, "value": 120.0, "min": 100.0, "max": 140.0},
+                {"device": "Comp-02", "device_id": 2, "value": 150.0, "min": 130.0, "max": 170.0},
+                {"device": "Comp-03", "device_id": 3, "value": 180.0, "min": 160.0, "max": 200.0},
+            ],
+        }
+
+        formatted = format_group_telemetry_response(result)
+
+        # Should show device attribution for min/max
+        assert "Comp-01" in formatted
+        assert "Comp-03" in formatted
+        # Should show avg with range, not percentage
+        assert "avg" in formatted.lower()
+        assert "range" in formatted.lower()
+        # Should NOT contain percentage symbols in breakdown
+        if "### Breakdown" in formatted:
+            breakdown_section = formatted.split("### Breakdown")[1]
+        else:
+            breakdown_section = ""
+        # Count % symbols - should be none in instantaneous breakdown
+        # (there might be % in summary section for data completeness, but not in breakdown)
+        assert "%" not in breakdown_section or breakdown_section.count("%") == 0
+
+    def test_format_cumulative_breakdown_has_percentage(self):
+        """Formatter shows percentage for cumulative quantities."""
+        result = {
+            "group": {
+                "type": "tag",
+                "label": "process=Compressor",
+                "result_type": "aggregated_group",
+                "device_count": 3,
+                "devices_with_data": 3,
+                "devices": ["Comp-01", "Comp-02", "Comp-03"],
+            },
+            "quantity": {
+                "id": 124,
+                "name": "Active Energy Delivered",
+                "unit": "kWh",
+                "aggregation": "total",
+                "is_instantaneous": False,
+            },
+            "summary": {
+                "total_value": 1000.0,
+                "min_value": 50.0,
+                "max_value": 500.0,
+                "min_device": None,
+                "max_device": None,
+                "unit": "kWh",
+                "period": "2025-01-01 to 2025-01-07",
+                "days_with_data": 7,
+                "data_points": 100,
+            },
+            "breakdown": [
+                {
+                    "device": "Comp-01", "device_id": 1, "value": 300.0,
+                    "min": 50.0, "max": 100.0, "percentage": 30.0,
+                },
+                {
+                    "device": "Comp-02", "device_id": 2, "value": 350.0,
+                    "min": 60.0, "max": 120.0, "percentage": 35.0,
+                },
+                {
+                    "device": "Comp-03", "device_id": 3, "value": 350.0,
+                    "min": 70.0, "max": 500.0, "percentage": 35.0,
+                },
+            ],
+        }
+
+        formatted = format_group_telemetry_response(result)
+
+        # Cumulative should show percentage in breakdown
+        assert "30.0%" in formatted or "30%" in formatted
+        # Should NOT show "avg" for cumulative
+        if "### Breakdown" in formatted:
+            breakdown_section = formatted.split("### Breakdown")[1]
+        else:
+            breakdown_section = ""
+        assert "avg" not in breakdown_section.lower()
