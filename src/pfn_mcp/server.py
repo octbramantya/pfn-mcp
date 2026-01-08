@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import signal
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
@@ -458,6 +459,19 @@ async def run_server():
     """Run the MCP server using stdio transport."""
     logger.info(f"Starting {settings.server_name} v{settings.server_version}")
 
+    # Track shutdown state
+    shutdown_event = asyncio.Event()
+
+    def signal_handler(signum, frame):
+        """Handle shutdown signals."""
+        sig_name = signal.Signals(signum).name
+        logger.info(f"Received {sig_name}, initiating shutdown...")
+        shutdown_event.set()
+
+    # Register signal handlers
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+
     # Initialize database connection pool
     try:
         await db.init_pool()
@@ -469,15 +483,49 @@ async def run_server():
         logger.error(f"Failed to initialize database: {e}")
         logger.warning("Server starting without database - tools will return errors")
 
-    try:
+    async def server_task():
+        """Run the MCP server."""
         async with stdio_server() as (read_stream, write_stream):
             await mcp.run(
                 read_stream,
                 write_stream,
                 mcp.create_initialization_options(),
             )
+
+    async def shutdown_watcher():
+        """Watch for shutdown signal and cancel server."""
+        await shutdown_event.wait()
+
+    try:
+        # Run server until shutdown signal or natural completion
+        server = asyncio.create_task(server_task())
+        watcher = asyncio.create_task(shutdown_watcher())
+
+        done, pending = await asyncio.wait(
+            [server, watcher],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+
+        # Cancel pending tasks
+        for task in pending:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
     finally:
-        await db.close_pool()
+        # Close database pool with timeout
+        logger.info("Closing database pool...")
+        try:
+            await asyncio.wait_for(db.close_pool(), timeout=2.0)
+            logger.info("Database pool closed")
+        except TimeoutError:
+            logger.warning("Database pool close timed out, forcing exit")
+        except Exception as e:
+            logger.error(f"Error closing database pool: {e}")
+
+        logger.info("Server shutdown complete")
 
 
 def main():

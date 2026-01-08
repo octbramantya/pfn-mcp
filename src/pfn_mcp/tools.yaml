@@ -507,9 +507,17 @@ tools:
         description: Explicit end date (YYYY-MM-DD)
       - name: breakdown
         type: string
-        description: "Breakdown type: 'none', 'device', 'daily' (default: none)"
+        description: "Breakdown type: 'none', 'device', 'daily' (default: none). Only used with output=summary."
         enum: [none, device, daily]
         default: none
+      - name: output
+        type: string
+        description: >-
+          Output format: 'summary' (aggregated totals/averages),
+          'timeseries' (time-aligned rows per device: [{time, device_1, device_2, ...}]).
+          Default: summary. Timeseries requires quantity_id or quantity_search.
+        enum: [summary, timeseries]
+        default: summary
 
   - name: compare_groups
     tenant_aware: true
