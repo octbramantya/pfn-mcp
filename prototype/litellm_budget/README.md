@@ -41,9 +41,9 @@ This prototype tests LiteLLM's per-team budget enforcement feature for tenant co
 ## Quick Start
 
 ```bash
-# 1. Copy environment file and add your OpenAI key
+# 1. Copy environment file and add your API keys
 cp .env.example .env
-# Edit .env with your OPENAI_API_KEY
+# Edit .env with your OPENAI_API_KEY and/or ANTHROPIC_API_KEY
 
 # 2. Start services
 docker compose up -d
@@ -51,7 +51,7 @@ docker compose up -d
 # 3. Wait for healthy status
 docker compose ps
 
-# 4. Setup teams with budget limits
+# 4. Setup teams with budget limits ($5/month)
 python test_budget.py setup
 
 # 5. Test budget enforcement
@@ -59,6 +59,9 @@ python test_budget.py test --team PRS
 
 # 6. Check status
 python test_budget.py status --team PRS
+
+# 7. Update existing teams to new budget config
+python test_budget.py update
 ```
 
 ## Files
@@ -76,6 +79,9 @@ python test_budget.py status --team PRS
 # Setup teams and generate API keys
 python test_budget.py setup
 
+# Update team budgets to current config (after editing TENANTS dict)
+python test_budget.py update
+
 # Test budget (sends requests until rejected)
 python test_budget.py test --team PRS
 
@@ -85,6 +91,29 @@ python test_budget.py status --team PRS
 # Reset spend for re-testing
 python test_budget.py reset --team PRS
 ```
+
+## Open WebUI Usage Tool
+
+An Open WebUI tool is available for users to check their usage: `../openwebui_usage_tool.py`
+
+### Installation
+
+1. Open WebUI Admin -> Workspace -> Functions -> Add Function
+2. Set type to "Tool"
+3. Paste the contents of `openwebui_usage_tool.py`
+4. Configure Valves:
+   - `LITELLM_URL`: Your LiteLLM proxy URL
+   - `LITELLM_MASTER_KEY`: Master key for querying team info
+   - `TEAM_ID`: Team UUID from `team_keys.json`
+5. Enable the tool for your model in Workspace -> Models
+
+### Usage
+
+Users can ask:
+- "check my usage"
+- "how much budget do I have left"
+
+The tool displays a progress bar similar to Claude Code's `/usage` command.
 
 ## LiteLLM API Reference
 

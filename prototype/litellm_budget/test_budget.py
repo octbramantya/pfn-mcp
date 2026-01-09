@@ -37,10 +37,11 @@ LITELLM_URL = os.environ.get("LITELLM_URL", "http://localhost:4000")
 MASTER_KEY = os.environ.get("LITELLM_MASTER_KEY", "sk-master-key")
 
 # Tenant configuration (matching Valkyrie tenants)
+# Budget: $5/month for prototype phase
 TENANTS = {
-    "PRS": {"name": "PT Rekayasa Sukses", "max_budget": 0.10, "budget_duration": "1d"},
-    "IOP": {"name": "PT Inti Optima", "max_budget": 0.10, "budget_duration": "1d"},
-    "NAV": {"name": "Navigant", "max_budget": 0.50, "budget_duration": "1d"},
+    "PRS": {"name": "PT Rekayasa Sukses", "max_budget": 5.00, "budget_duration": "1mo"},
+    "IOP": {"name": "PT Inti Optima", "max_budget": 5.00, "budget_duration": "1mo"},
+    "NAV": {"name": "Navigant", "max_budget": 5.00, "budget_duration": "1mo"},
 }
 
 
@@ -277,12 +278,47 @@ def reset_spend(team_code: str):
         print(f"Spend reset to $0.00 for team '{team_code}'")
 
 
+def update_budgets():
+    """Update all team budgets to current TENANTS config."""
+    print("\n=== Updating Team Budgets ===\n")
+
+    teams = api_call("GET", "/team/list")
+    if "data" not in teams:
+        print(f"Error: {teams}")
+        return
+
+    for team in teams.get("data", []):
+        alias = team.get("team_alias")
+        if alias in TENANTS:
+            team_id = team["team_id"]
+            config = TENANTS[alias]
+
+            print(f"Updating team '{alias}'...")
+            print(f"  Current: ${team.get('max_budget', 0):.2f} / {team.get('budget_duration', 'N/A')}")
+            print(f"  New: ${config['max_budget']:.2f} / {config['budget_duration']}")
+
+            result = api_call("POST", "/team/update", {
+                "team_id": team_id,
+                "max_budget": config["max_budget"],
+                "budget_duration": config["budget_duration"]
+            })
+
+            if "error" in result:
+                print(f"  Error: {result['error']}")
+            else:
+                print(f"  Updated successfully")
+            print()
+
+
 def main():
     parser = argparse.ArgumentParser(description="Test LiteLLM budget enforcement")
     subparsers = parser.add_subparsers(dest="command", help="Commands")
 
     # Setup command
     subparsers.add_parser("setup", help="Create teams and generate API keys")
+
+    # Update command
+    subparsers.add_parser("update", help="Update all team budgets to current config")
 
     # Test command
     test_parser = subparsers.add_parser("test", help="Test budget enforcement")
@@ -303,6 +339,8 @@ def main():
 
     if args.command == "setup":
         setup_teams()
+    elif args.command == "update":
+        update_budgets()
     elif args.command == "test":
         test_budget(args.team)
     elif args.command == "status":
