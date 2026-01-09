@@ -35,7 +35,7 @@ BUCKET_MINUTES = {
 
 # TimescaleDB time_bucket intervals (as timedelta for asyncpg compatibility)
 BUCKET_INTERVALS = {
-    "5sec": timedelta(seconds=5),  # raw data (no aggregation)
+    "1min": timedelta(minutes=1),  # raw data (no aggregation)
     "15min": timedelta(minutes=15),
     "1hour": timedelta(hours=1),
     "4hour": timedelta(hours=4),
@@ -45,7 +45,7 @@ BUCKET_INTERVALS = {
 
 # Human-readable bucket interval labels for display
 BUCKET_LABELS = {
-    "5sec": "5 seconds (raw)",
+    "1min": "1 minute (raw)",
     "15min": "15 minutes",
     "1hour": "1 hour",
     "4hour": "4 hours",
@@ -54,7 +54,7 @@ BUCKET_LABELS = {
 }
 
 # Data source selection thresholds (hours)
-RAW_DATA_THRESHOLD_HOURS = 4  # Use raw data (5-sec) below this
+RAW_DATA_THRESHOLD_HOURS = 4  # Use raw data (1-min) below this
 RAW_AGGREGATED_THRESHOLD_HOURS = 24  # Use raw data with 15-min aggregation below this
 RAW_DATA_RETENTION_DAYS = 14  # Raw data retention period
 
@@ -301,7 +301,7 @@ def select_data_source(time_range: timedelta, query_start: datetime) -> tuple[st
         Tuple of (data_source, bucket_size)
 
     Logic:
-        - <= 4 hours AND within 14 days: telemetry_data (raw 5-second)
+        - <= 4 hours AND within 14 days: telemetry_data (raw 1-minute)
         - 4-24 hours AND within 14 days: telemetry_data with 15-min aggregation
         - > 24 hours OR older than 14 days: telemetry_15min_agg with adaptive bucketing
     """
@@ -313,7 +313,7 @@ def select_data_source(time_range: timedelta, query_start: datetime) -> tuple[st
     raw_data_available = days_ago <= RAW_DATA_RETENTION_DAYS
 
     if hours <= RAW_DATA_THRESHOLD_HOURS and raw_data_available:
-        return DATA_SOURCE_RAW, "5sec"
+        return DATA_SOURCE_RAW, "1min"
     elif hours <= RAW_AGGREGATED_THRESHOLD_HOURS and raw_data_available:
         return DATA_SOURCE_RAW_AGGREGATED, "15min"
     else:
@@ -326,7 +326,7 @@ async def _query_raw_telemetry(
     query_start: datetime,
     query_end: datetime,
 ) -> list[dict]:
-    """Query raw telemetry_data (5-second intervals)."""
+    """Query raw telemetry_data (1-minute intervals)."""
     query = """
         SELECT
             timestamp as time_bucket,
@@ -582,7 +582,7 @@ async def get_device_telemetry(
     elif bucket in valid_buckets:
         selected_bucket = bucket
         # Determine data source based on bucket choice
-        if bucket == "5sec":
+        if bucket == "1min":
             data_source = DATA_SOURCE_RAW
         else:
             # Use smart selection but override bucket
