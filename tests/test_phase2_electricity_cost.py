@@ -8,7 +8,6 @@ import pytest
 from pfn_mcp.tools.electricity_cost import (
     compare_electricity_periods,
     get_electricity_cost,
-    get_electricity_cost_breakdown,
     get_electricity_cost_ranking,
 )
 
@@ -61,7 +60,7 @@ class TestCostBreakdowns:
     @pytest.mark.asyncio
     async def test_breakdown_by_shift(self, db_pool, sample_device):
         """Scenario #28: Break down device's electricity cost by shift."""
-        result = await get_electricity_cost_breakdown(
+        result = await get_electricity_cost(
             device=sample_device["display_name"],
             period="30d",
             group_by="shift"
@@ -75,7 +74,7 @@ class TestCostBreakdowns:
     @pytest.mark.asyncio
     async def test_breakdown_by_rate(self, db_pool, sample_device):
         """Scenario #29: Show cost breakdown by rate (WBP/LWBP) for device."""
-        result = await get_electricity_cost_breakdown(
+        result = await get_electricity_cost(
             device=sample_device["display_name"],
             period="30d",
             group_by="rate"
@@ -92,7 +91,7 @@ class TestCostBreakdowns:
         result = await get_electricity_cost(
             tenant=sample_tenant["tenant_name"],
             period="30d",
-            breakdown="source"
+            group_by="source"
         )
 
         assert isinstance(result, dict)

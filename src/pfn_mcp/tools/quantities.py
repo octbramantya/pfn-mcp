@@ -7,23 +7,57 @@ from pfn_mcp import db
 logger = logging.getLogger(__name__)
 
 # Semantic aliases for natural language queries
+# Patterns are matched against quantity_code using ILIKE '%pattern%'
+# More specific patterns listed first for priority matching
 QUANTITY_ALIASES = {
-    "energy": ["ACTIVE_ENERGY", "APPARENT_ENERGY", "REACTIVE_ENERGY"],
-    "power": ["ACTIVE_POWER", "APPARENT_POWER", "REACTIVE_POWER"],
-    "voltage": ["VOLTAGE"],
-    "volt": ["VOLTAGE"],
-    "current": ["CURRENT"],
-    "amp": ["CURRENT"],
-    "power factor": ["POWER_FACTOR", "TRUE_POWER_FAC", "DISPLACEMENT_POWER_F"],
-    "pf": ["POWER_FACTOR", "TRUE_POWER_FAC", "DISPLACEMENT_POWER_F"],
+    # Current - default to average across phases (ID: 3324)
+    "current": ["100MS_CURRENT_AVG", "CURRENT_AVG", "CURRENT_PHASE"],
+    "amp": ["100MS_CURRENT_AVG", "CURRENT_AVG", "CURRENT_PHASE"],
+    "neutral current": ["CURRENT_N"],
+    # Voltage - default to L-N average (ID: 3332)
+    "voltage": ["VOLTAGE_L-N_AV", "VOLTAGE_L-N_AVG", "VOLTAGE_L-N"],
+    "volt": ["VOLTAGE_L-N_AV", "VOLTAGE_L-N_AVG", "VOLTAGE_L-N"],
+    "line voltage": ["VOLTAGE_L-L_AV", "VOLTAGE_L-L"],
+    # Power factor - default to true PF total (ID: 1072)
+    "power factor": ["TRUE_POWER_FAC", "POWER_FACTOR_TOTAL", "POWER_FACTOR"],
+    "pf": ["TRUE_POWER_FAC", "POWER_FACTOR_TOTAL", "POWER_FACTOR"],
+    "displacement power factor": ["DISPLACEMENT_POWER_F"],
+    # Power - default to active power (ID: 185)
+    "power": ["ACTIVE_POWER"],
+    "kw": ["ACTIVE_POWER"],
+    "reactive power": ["REACTIVE_POWER"],
+    "kvar": ["REACTIVE_POWER"],
+    "apparent power": ["APPARENT_POWER"],
+    "kva": ["APPARENT_POWER"],
+    # Energy - default to active energy delivered (ID: 124)
+    "energy": ["ACTIVE_ENERGY_DELIVE"],
+    "kwh": ["ACTIVE_ENERGY_DELIVE"],
+    "consumption": ["ACTIVE_ENERGY_DELIVE"],
+    "reactive energy": ["REACTIVE_ENERGY_DELI"],
+    "apparent energy": ["APPARENT_ENERGY_DELI"],
+    # Frequency (ID: 526)
     "frequency": ["FREQUENCY"],
-    "thd": ["THD"],
-    "harmonic": ["THD"],
-    "unbalance": ["UNBALANCE"],
+    "hz": ["FREQUENCY"],
+    # THD - default to voltage L-N (ID: 1119)
+    "thd": ["THD_VOLTAGE_L-N", "THD_VOLTAGE", "THD"],
+    "harmonic": ["THD_VOLTAGE_L-N", "THD_VOLTAGE", "THD"],
+    "thd voltage": ["THD_VOLTAGE_L-N", "THD_VOLTAGE"],
+    "thd current": ["THD_RMS_CURRENT"],
+    # Unbalance - default to voltage L-N (ID: 1117)
+    "unbalance": ["VOLTAGE_UNBALANCE_L-N", "UNBALANCE"],
+    "voltage unbalance": ["VOLTAGE_UNBALANCE_L-N"],
+    "current unbalance": ["CURRENT_UNBALANCE_WO", "CURRENT_UNBALANCE"],
+    # Water
     "water": ["WATER"],
+    "water flow": ["WATER_VOLUME_FLOW"],
+    "water volume": ["WATER_VOLUME_SUPPLY", "WATER_VOLUME"],
+    "water temperature": ["WATER_TEMPERATURE_SU", "WATER_TEMPERATURE"],
+    # Air
     "air": ["AIR"],
+    "air velocity": ["AIR_VELOCITY"],
+    # Generic
     "temperature": ["TEMPERATURE"],
-    "flow": ["FLOW"],
+    "flow": ["FLOW", "VOLUME_FLOW"],
     "volume": ["VOLUME"],
 }
 

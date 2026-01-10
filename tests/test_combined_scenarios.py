@@ -9,7 +9,6 @@ from pfn_mcp.tools.discovery import check_data_freshness, get_device_info, get_t
 from pfn_mcp.tools.electricity_cost import (
     compare_electricity_periods,
     get_electricity_cost,
-    get_electricity_cost_breakdown,
     get_electricity_cost_ranking,
 )
 from pfn_mcp.tools.group_telemetry import compare_groups
@@ -28,7 +27,7 @@ class TestEnergyManagerQuestions:
         1. get_device_info - Device details
         2. get_electricity_cost - Last month's consumption
         3. get_peak_analysis - Peak demand times
-        4. get_electricity_cost_breakdown - Cost breakdown by shift
+        4. get_electricity_cost (group_by=shift) - Cost breakdown by shift
         """
         # Step 1: Get device details
         device_info = await get_device_info(device_id=sample_device["id"])
@@ -52,7 +51,7 @@ class TestEnergyManagerQuestions:
         assert isinstance(peaks, dict)
 
         # Step 4: Get cost breakdown by shift
-        breakdown = await get_electricity_cost_breakdown(
+        breakdown = await get_electricity_cost(
             device=sample_device["display_name"],
             period="1M",
             group_by="shift"

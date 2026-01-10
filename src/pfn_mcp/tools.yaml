@@ -216,10 +216,18 @@ tools:
       Returns aggregated data (avg, min, max, sum, count) with adaptive bucketing.
       Smart data source selection: uses raw 1-minute data for queries ≤4h (within 14 days),
       15-min aggregated for 4-24h, and pre-aggregated data for longer periods.
-      Supports period strings (24h, 7d, 30d) or date ranges.
-      **For energy quantities (Active Energy, etc.), use get_energy_consumption instead** -
-      this tool returns cumulative meter readings, not actual consumption.
-      Use resolve_device first if device name is ambiguous.
+
+      **Default quantity mappings** (when user doesn't specify phase):
+      - "current" → 100ms Current Avg (ID: 3324) - average across phases
+      - "voltage" → 100ms Voltage L-N Avg (ID: 3332) - line-to-neutral average
+      - "power factor" / "pf" → True Power Factor Total (ID: 1072)
+      - "power" → Active Power (ID: 185)
+      - "frequency" → Frequency (ID: 526)
+      - "thd" → THD Voltage L-N (ID: 1119)
+      For phase-specific data, use explicit names like "Current Phase A" or quantity IDs.
+
+      **For energy/consumption queries, use get_energy_consumption instead** -
+      this tool returns meter readings, not actual consumption values.
     params:
       - name: device_id
         type: integer
@@ -232,7 +240,10 @@ tools:
         description: Quantity ID (preferred over quantity_search)
       - name: quantity_search
         type: string
-        description: "Quantity search: voltage, power, energy, current, power factor, thd, frequency"
+        description: >-
+          Quantity search term. Default mappings: "current"→3324, "voltage"→3332,
+          "power factor"→1072, "power"→185, "frequency"→526, "thd"→1119.
+          Use quantity IDs for phase-specific measurements.
       - name: period
         type: string
         description: "Time period: 1h, 24h, 7d, 30d, 3M, 1Y"
@@ -317,8 +328,29 @@ tools:
     tenant_aware: true
     description: >-
       Get electricity consumption and cost for a device or tenant.
-      Queries pre-aggregated daily cost data with time-of-use rates.
-      Supports breakdown by: daily, shift, rate (WBP/LWBP), or source (PLN/Solar).
+      Queries pre-aggregated daily cost data with time-of-use (TOU) rates.
+
+      **Indonesian Electricity Rate Codes:**
+      - WBP (Waktu Beban Puncak) = Peak Period (~Rp 1,550/kWh)
+      - LWBP (Luar WBP) = Off-Peak Period (~Rp 1,035/kWh)
+        - LWBP1: Morning off-peak
+        - LWBP2: Night off-peak
+
+      **Work Shifts:**
+      - SHIFT1: Night (22:00-06:00)
+      - SHIFT2: Day (06:00-14:00)
+      - SHIFT3: Evening (14:00-22:00)
+
+      **Group by options:**
+      - none: Summary totals only (default)
+      - daily: Per-day breakdown
+      - shift: By work shift (SHIFT1/2/3)
+      - rate: By electricity rate (WBP/LWBP)
+      - source: By utility source (PLN/Solar)
+      - shift_rate: Combined shift and rate matrix
+      - daily_rate: Per-day breakdown by rate (compare rate distribution across days)
+      - daily_shift: Per-day breakdown by shift
+
       Period formats: '7d', '1M', '2025-12', or 'YYYY-MM-DD to YYYY-MM-DD'.
     params:
       - name: device
@@ -336,37 +368,14 @@ tools:
       - name: end_date
         type: string
         description: Explicit end date (YYYY-MM-DD)
-      - name: breakdown
-        type: string
-        description: "Breakdown type: 'none', 'daily', 'shift', 'rate', 'source' (default: none)"
-        enum: [none, daily, shift, rate, source]
-        default: none
-
-  - name: get_electricity_cost_breakdown
-    tenant_aware: true
-    description: >-
-      Detailed electricity cost breakdown for a device.
-      Groups by shift (SHIFT1/2/3), rate (WBP/LWBP), source (PLN/Solar),
-      or combined shift+rate. Use for shift productivity or rate analysis.
-    params:
-      - name: device
-        type: string
-        description: Device name (fuzzy match, required)
-        required: true
-      - name: period
-        type: string
-        description: "Time period: '7d', '1M', '2025-12' (default: 7d)"
-      - name: start_date
-        type: string
-        description: Explicit start date (YYYY-MM-DD)
-      - name: end_date
-        type: string
-        description: Explicit end date (YYYY-MM-DD)
       - name: group_by
         type: string
-        description: "Grouping: 'shift', 'rate', 'source', 'shift_rate' (default: shift_rate)"
-        enum: [shift, rate, source, shift_rate]
-        default: shift_rate
+        description: >-
+          Grouping type: 'none' (summary only), 'daily', 'shift', 'rate', 'source',
+          'shift_rate' (shift×rate matrix), 'daily_rate' (per-day by rate),
+          'daily_shift' (per-day by shift). Default: none.
+        enum: [none, daily, shift, rate, source, shift_rate, daily_rate, daily_shift]
+        default: none
 
   - name: get_electricity_cost_ranking
     tenant_aware: true

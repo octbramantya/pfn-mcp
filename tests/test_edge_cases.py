@@ -7,7 +7,7 @@ import pytest
 
 from pfn_mcp.tools.device_quantities import compare_device_quantities
 from pfn_mcp.tools.devices import list_devices
-from pfn_mcp.tools.electricity_cost import get_electricity_cost_breakdown
+from pfn_mcp.tools.electricity_cost import get_electricity_cost
 from pfn_mcp.tools.telemetry import get_device_telemetry
 
 
@@ -54,7 +54,7 @@ class TestEdgeCases:
         Use a device that likely has no cost data in the summary table.
         """
         # Try with a device name that won't have cost data
-        result = await get_electricity_cost_breakdown(
+        result = await get_electricity_cost(
             device="nonexistent_device_xyz",
             period="7d",
             group_by="shift"
