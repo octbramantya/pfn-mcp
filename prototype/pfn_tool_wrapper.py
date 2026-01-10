@@ -2,7 +2,7 @@
 title: PFN Energy Tools
 description: Tenant-scoped energy monitoring tools powered by PFN MCP
 author: PFN Team
-version: 0.3.0
+version: 0.4.0
 license: MIT
 
 Thin wrapper that injects tenant context into MCP tool calls.
@@ -136,8 +136,27 @@ class Tools:
     # MCP CLIENT
     # =========================================================================
 
-    async def _call_mcp(self, tool_name: str, params: dict) -> str:
+    def _log_tool_call(self, tool_name: str, params: dict, __user__: dict = None):
+        """Log tool call in JSON format for analytics."""
+        import logging
+        logger = logging.getLogger("pfn_tools")
+
+        user_id = __user__.get("id", "unknown") if __user__ else "unknown"
+        log_params = {k: v for k, v in params.items() if k != "tenant"}
+
+        log_entry = {
+            "event": "pfn_tool",
+            "user_id": user_id,
+            "tool": tool_name,
+            "tenant": params.get("tenant"),
+            "params": log_params
+        }
+        logger.info(json.dumps(log_entry, default=str))
+
+    async def _call_mcp(self, tool_name: str, params: dict, __user__: dict = None) -> str:
         """Call MCP tool and return JSON response."""
+        self._log_tool_call(tool_name, params, __user__)
+
         # TODO: Replace with actual MCP client
         return json.dumps({
             "tool": tool_name,
@@ -152,72 +171,72 @@ class Tools:
     async def list_devices(self, search: str = "", limit: int = 20, offset: int = 0, __user__: dict = None) -> str:
         """List energy monitoring devices with pagination."""
         tenant = self._get_tenant_code(__user__)
-        return await self._call_mcp("list_devices", {"tenant": tenant, "search": search, "limit": limit, "offset": offset})
+        return await self._call_mcp("list_devices", {"tenant": tenant, "search": search, "limit": limit, "offset": offset}, __user__)
 
     async def resolve_device(self, search: str, __user__: dict = None) -> str:
         """Resolve device name to ID with match confidence."""
         tenant = self._get_tenant_code(__user__)
-        return await self._call_mcp("resolve_device", {"tenant": tenant, "search": search})
+        return await self._call_mcp("resolve_device", {"tenant": tenant, "search": search}, __user__)
 
     async def get_device_telemetry(self, device: str, quantity: str = "power", period: str = "7d", __user__: dict = None) -> str:
         """Get time-series telemetry data for a device."""
         tenant = self._get_tenant_code(__user__)
-        return await self._call_mcp("get_device_telemetry", {"tenant": tenant, "device_name": device, "quantity_search": quantity, "period": period})
+        return await self._call_mcp("get_device_telemetry", {"tenant": tenant, "device_name": device, "quantity_search": quantity, "period": period}, __user__)
 
     async def get_quantity_stats(self, device_id: int, quantity: str = "", period: str = "30d", __user__: dict = None) -> str:
         """Get data availability stats for a device quantity."""
         tenant = self._get_tenant_code(__user__)
-        return await self._call_mcp("get_quantity_stats", {"tenant": tenant, "device_id": device_id, "quantity_search": quantity, "period": period})
+        return await self._call_mcp("get_quantity_stats", {"tenant": tenant, "device_id": device_id, "quantity_search": quantity, "period": period}, __user__)
 
     async def get_energy_consumption(self, device: str = "", period: str = "7d", bucket: str = "auto", __user__: dict = None) -> str:
         """Get energy consumption (actual kWh, not meter readings)."""
         tenant = self._get_tenant_code(__user__)
-        return await self._call_mcp("get_energy_consumption", {"tenant": tenant, "device_name": device, "period": period, "bucket": bucket})
+        return await self._call_mcp("get_energy_consumption", {"tenant": tenant, "device_name": device, "period": period, "bucket": bucket}, __user__)
 
     async def find_devices_by_quantity(self, quantity: str, __user__: dict = None) -> str:
         """Find devices that have data for a specific quantity."""
         tenant = self._get_tenant_code(__user__)
-        return await self._call_mcp("find_devices_by_quantity", {"tenant": tenant, "quantity_search": quantity})
+        return await self._call_mcp("find_devices_by_quantity", {"tenant": tenant, "quantity_search": quantity}, __user__)
 
     async def check_data_freshness(self, hours_threshold: int = 24, __user__: dict = None) -> str:
         """Check data freshness for tenant devices."""
         tenant = self._get_tenant_code(__user__)
-        return await self._call_mcp("check_data_freshness", {"tenant": tenant, "hours_threshold": hours_threshold})
+        return await self._call_mcp("check_data_freshness", {"tenant": tenant, "hours_threshold": hours_threshold}, __user__)
 
     async def get_tenant_summary(self, __user__: dict = None) -> str:
         """Get comprehensive tenant overview."""
         tenant = self._get_tenant_code(__user__)
-        return await self._call_mcp("get_tenant_summary", {"tenant_name": tenant})
+        return await self._call_mcp("get_tenant_summary", {"tenant_name": tenant}, __user__)
 
     async def get_electricity_cost(self, period: str = "7d", breakdown: str = "none", __user__: dict = None) -> str:
         """Get electricity cost for tenant."""
         tenant = self._get_tenant_code(__user__)
-        return await self._call_mcp("get_electricity_cost", {"tenant": tenant, "period": period, "breakdown": breakdown})
+        return await self._call_mcp("get_electricity_cost", {"tenant": tenant, "period": period, "breakdown": breakdown}, __user__)
 
     async def get_electricity_cost_breakdown(self, device: str, period: str = "7d", group_by: str = "shift_rate", __user__: dict = None) -> str:
         """Get detailed electricity cost breakdown for a device."""
         tenant = self._get_tenant_code(__user__)
-        return await self._call_mcp("get_electricity_cost_breakdown", {"tenant": tenant, "device": device, "period": period, "group_by": group_by})
+        return await self._call_mcp("get_electricity_cost_breakdown", {"tenant": tenant, "device": device, "period": period, "group_by": group_by}, __user__)
 
     async def get_electricity_cost_ranking(self, period: str = "30d", metric: str = "cost", limit: int = 10, __user__: dict = None) -> str:
         """Rank devices by electricity cost within tenant."""
         tenant = self._get_tenant_code(__user__)
-        return await self._call_mcp("get_electricity_cost_ranking", {"tenant": tenant, "period": period, "metric": metric, "limit": limit})
+        return await self._call_mcp("get_electricity_cost_ranking", {"tenant": tenant, "period": period, "metric": metric, "limit": limit}, __user__)
 
     async def compare_electricity_periods(self, period1: str, period2: str, device: str = "", __user__: dict = None) -> str:
         """Compare electricity costs between two periods."""
         tenant = self._get_tenant_code(__user__)
-        return await self._call_mcp("compare_electricity_periods", {"tenant": tenant, "device": device, "period1": period1, "period2": period2})
+        return await self._call_mcp("compare_electricity_periods", {"tenant": tenant, "device": device, "period1": period1, "period2": period2}, __user__)
 
     async def list_tags(self, tag_key: str = "", __user__: dict = None) -> str:
         """List available device tags for grouping."""
         tenant = self._get_tenant_code(__user__)
-        return await self._call_mcp("list_tags", {"tenant": tenant, "tag_key": tag_key})
+        return await self._call_mcp("list_tags", {"tenant": tenant, "tag_key": tag_key}, __user__)
 
     async def list_tag_values(self, tag_key: str, __user__: dict = None) -> str:
         """List values for a tag key with device counts."""
         tenant = self._get_tenant_code(__user__)
-        return await self._call_mcp("list_tag_values", {"tenant": tenant, "tag_key": tag_key})
+        return await self._call_mcp("list_tag_values", {"tenant": tenant, "tag_key": tag_key}, __user__)
 
     async def get_group_telemetry(self, tag_key: str = "", tag_value: str = "", tags: str = "", period: str = "7d", breakdown: str = "none", __user__: dict = None) -> str:
         """Get aggregated telemetry for a device group. Use tags for multi-tag AND: 'key1:val1,key2:val2'"""
@@ -229,18 +248,18 @@ class Tools:
         elif tag_key and tag_value:
             params["tag_key"] = tag_key
             params["tag_value"] = tag_value
-        return await self._call_mcp("get_group_telemetry", params)
+        return await self._call_mcp("get_group_telemetry", params, __user__)
 
     async def compare_groups(self, groups: str, period: str = "7d", __user__: dict = None) -> str:
         """Compare consumption across groups. Format: 'key1:value1,key2:value2'"""
         tenant = self._get_tenant_code(__user__)
         group_list = [{"tag_key": g.split(":")[0], "tag_value": g.split(":")[1]} for g in groups.split(",") if ":" in g]
-        return await self._call_mcp("compare_groups", {"tenant": tenant, "groups": group_list, "period": period})
+        return await self._call_mcp("compare_groups", {"tenant": tenant, "groups": group_list, "period": period}, __user__)
 
     async def get_peak_analysis(self, quantity: str = "power", period: str = "7d", top_n: int = 10, __user__: dict = None) -> str:
         """Find peak values with timestamps for tenant devices."""
         tenant = self._get_tenant_code(__user__)
-        return await self._call_mcp("get_peak_analysis", {"tenant": tenant, "quantity_search": quantity, "period": period, "top_n": top_n})
+        return await self._call_mcp("get_peak_analysis", {"tenant": tenant, "quantity_search": quantity, "period": period, "top_n": top_n}, __user__)
 
     # =========================================================================
     # GLOBAL TOOLS (no tenant injection)
@@ -248,24 +267,24 @@ class Tools:
 
     async def list_tenants(self, __user__: dict = None) -> str:
         """List all tenants."""
-        return await self._call_mcp("list_tenants", {})
+        return await self._call_mcp("list_tenants", {}, __user__)
 
     async def list_quantities(self, search: str = "", category: str = "", __user__: dict = None) -> str:
         """List available measurement quantities."""
-        return await self._call_mcp("list_quantities", {"search": search, "category": category})
+        return await self._call_mcp("list_quantities", {"search": search, "category": category}, __user__)
 
     async def list_device_quantities(self, device: str, search: str = "", __user__: dict = None) -> str:
         """List quantities available for a device."""
-        return await self._call_mcp("list_device_quantities", {"device_name": device, "search": search})
+        return await self._call_mcp("list_device_quantities", {"device_name": device, "search": search}, __user__)
 
     async def compare_device_quantities(self, devices: str, search: str = "", __user__: dict = None) -> str:
         """Compare quantities across devices. Comma-separated names."""
         device_list = [d.strip() for d in devices.split(",") if d.strip()]
-        return await self._call_mcp("compare_device_quantities", {"device_names": device_list, "search": search})
+        return await self._call_mcp("compare_device_quantities", {"device_names": device_list, "search": search}, __user__)
 
     async def get_device_data_range(self, device: str, __user__: dict = None) -> str:
         """Get time range of available data for a device."""
-        return await self._call_mcp("get_device_data_range", {"device_name": device})
+        return await self._call_mcp("get_device_data_range", {"device_name": device}, __user__)
 
     async def get_device_info(self, device: str = "", ip_address: str = "", slave_id: int = 0, __user__: dict = None) -> str:
         """Get device info by name or Modbus address (ip_address + slave_id)."""
@@ -275,11 +294,11 @@ class Tools:
         if ip_address and slave_id:
             params["ip_address"] = ip_address
             params["slave_id"] = slave_id
-        return await self._call_mcp("get_device_info", params)
+        return await self._call_mcp("get_device_info", params, __user__)
 
     async def search_tags(self, search: str, limit: int = 10, __user__: dict = None) -> str:
         """Search for tags by value or key."""
-        return await self._call_mcp("search_tags", {"search": search, "limit": limit})
+        return await self._call_mcp("search_tags", {"search": search, "limit": limit}, __user__)
 
     # =========================================================================
     # HELPER TOOL

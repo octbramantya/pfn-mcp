@@ -36,14 +36,16 @@ Synchronize MCP tool definitions with the Open WebUI wrapper. Each wrapper funct
    ```python
    async def {tool_name}(self, {params}, __user__: dict = None) -> str:
        tenant = self._get_tenant_code(__user__)
-       return await self._call_mcp("{tool_name}", {"tenant": tenant, {param_dict}})
+       return await self._call_mcp("{tool_name}", {"tenant": tenant, {param_dict}}, __user__)
    ```
 
    **Global tool (`tenant_aware: false` in YAML):**
    ```python
    async def {tool_name}(self, {params}, __user__: dict = None) -> str:
-       return await self._call_mcp("{tool_name}", {{param_dict}})
+       return await self._call_mcp("{tool_name}", {{param_dict}}, __user__)
    ```
+
+   > **Note:** Always pass `__user__` to `_call_mcp` for logging purposes.
 
 5. **Ask for confirmation** before applying changes
 
@@ -53,24 +55,24 @@ Synchronize MCP tool definitions with the Open WebUI wrapper. Each wrapper funct
 ```python
 async def get_electricity_cost(self, period: str = "this_month", __user__: dict = None) -> str:
     tenant = self._get_tenant_code(__user__)
-    return await self._call_mcp("get_electricity_cost", {"tenant": tenant, "period": period})
+    return await self._call_mcp("get_electricity_cost", {"tenant": tenant, "period": period}, __user__)
 
 async def list_devices(self, search: str = "", __user__: dict = None) -> str:
     tenant = self._get_tenant_code(__user__)
-    return await self._call_mcp("list_devices", {"tenant": tenant, "search": search})
+    return await self._call_mcp("list_devices", {"tenant": tenant, "search": search}, __user__)
 
 async def get_peak_analysis(self, device: str = "", period: str = "7d", __user__: dict = None) -> str:
     tenant = self._get_tenant_code(__user__)
-    return await self._call_mcp("get_peak_analysis", {"tenant": tenant, "device": device, "period": period})
+    return await self._call_mcp("get_peak_analysis", {"tenant": tenant, "device": device, "period": period}, __user__)
 ```
 
 **Global:**
 ```python
 async def list_quantities(self, search: str = "", __user__: dict = None) -> str:
-    return await self._call_mcp("list_quantities", {"search": search})
+    return await self._call_mcp("list_quantities", {"search": search}, __user__)
 
 async def list_tenants(self, __user__: dict = None) -> str:
-    return await self._call_mcp("list_tenants", {})
+    return await self._call_mcp("list_tenants", {}, __user__)
 ```
 
 ## Files

@@ -21,16 +21,18 @@ Each wrapper function is **2-3 lines**:
 ```python
 async def get_electricity_cost(self, period: str = "this_month", __user__: dict = None) -> str:
     tenant = self._get_tenant_code(__user__)
-    return await self._call_mcp("get_electricity_cost", {"tenant": tenant, "period": period})
+    return await self._call_mcp("get_electricity_cost", {"tenant": tenant, "period": period}, __user__)
 
 async def list_devices(self, search: str = "", __user__: dict = None) -> str:
     tenant = self._get_tenant_code(__user__)
-    return await self._call_mcp("list_devices", {"tenant": tenant, "search": search})
+    return await self._call_mcp("list_devices", {"tenant": tenant, "search": search}, __user__)
 
 async def get_device_telemetry(self, device: str, period: str = "7d", __user__: dict = None) -> str:
     tenant = self._get_tenant_code(__user__)
-    return await self._call_mcp("get_device_telemetry", {"tenant": tenant, "device": device, "period": period})
+    return await self._call_mcp("get_device_telemetry", {"tenant": tenant, "device": device, "period": period}, __user__)
 ```
+
+> **Note:** Always pass `__user__` to `_call_mcp` for JSON logging (user_id, tool, tenant, params).
 
 ## Core Helper
 
@@ -63,14 +65,14 @@ The complexity lives in `resolve_tenant()` on the MCP server, not in the wrapper
 ```python
 async def list_devices(self, search: str = "", __user__: dict = None) -> str:
     tenant = self._get_tenant_code(__user__)
-    return await self._call_mcp("list_devices", {"tenant": tenant, "search": search})
+    return await self._call_mcp("list_devices", {"tenant": tenant, "search": search}, __user__)
 ```
 
 ### Global (no tenant needed)
 
 ```python
 async def list_quantities(self, search: str = "", __user__: dict = None) -> str:
-    return await self._call_mcp("list_quantities", {"search": search})
+    return await self._call_mcp("list_quantities", {"search": search}, __user__)
 ```
 
 ## Superuser Handling
@@ -91,11 +93,11 @@ Use `/tool-update` to sync, or manually add:
 # 2. If yes:
 async def new_tool(self, param1: str, __user__: dict = None) -> str:
     tenant = self._get_tenant_code(__user__)
-    return await self._call_mcp("new_tool", {"tenant": tenant, "param1": param1})
+    return await self._call_mcp("new_tool", {"tenant": tenant, "param1": param1}, __user__)
 
 # 3. If no (global tool):
 async def new_global_tool(self, param1: str, __user__: dict = None) -> str:
-    return await self._call_mcp("new_global_tool", {"param1": param1})
+    return await self._call_mcp("new_global_tool", {"param1": param1}, __user__)
 ```
 
 ## Files
