@@ -11,7 +11,7 @@ model_list:
   # MiniMax - alternative model
   - model_name: minimax
     litellm_params:
-      model: minimax/MiniMax-Text-01
+      model: minimax/MiniMax-M2
       api_key: os.environ/MINIMAX_API_KEY
 
 litellm_settings:
