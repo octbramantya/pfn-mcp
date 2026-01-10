@@ -1,5 +1,5 @@
 #!/bin/bash
-# Quick update script for PFN MCP Server
+# Quick update script for PFN MCP Server (Docker deployment)
 # Run as root on the VPS
 
 set -e
@@ -11,12 +11,11 @@ cd /opt/pfn-mcp
 echo "Pulling latest changes..."
 git pull
 
-echo "Installing dependencies..."
-.venv/bin/pip install -e . --quiet
-
-echo "Restarting service..."
-systemctl restart pfn-mcp
+echo "Rebuilding and restarting containers..."
+cd prototype
+docker compose build pfn-mcp
+docker compose up -d pfn-mcp mcpo
 
 echo ""
 echo "=== Update Complete ==="
-systemctl status pfn-mcp --no-pager
+docker compose ps

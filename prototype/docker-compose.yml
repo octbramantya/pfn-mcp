@@ -76,6 +76,7 @@ services:
     container_name: proto-litellm
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - MINIMAX_API_KEY=${MINIMAX_API_KEY}
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
       - LITELLM_DATABASE_URL=postgresql://litellm:${LITELLM_DB_PASSWORD:-litellm}@litellm-db:5432/litellm
     volumes:
@@ -94,18 +95,34 @@ services:
       timeout: 5s
       retries: 10
 
+  # PFN MCP Server - SSE transport
+  # Energy monitoring tools for Open WebUI
+  pfn-mcp:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: proto-pfn-mcp
+    environment:
+      - DATABASE_URL=${PFN_DATABASE_URL}
+    networks:
+      - proto-net
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   # MCPO - MCP to OpenAPI proxy
   # Bridges SSE MCP server to OpenAPI for Open WebUI
-  # Connects to host's systemd SSE server (for prototype/testing)
-  # For production: use Dockerized pfn-mcp instead
   mcpo:
     image: ghcr.io/open-webui/mcpo:main
     container_name: proto-mcpo
-    command: ["--port", "8000", "--server-type", "sse", "--", "http://host.docker.internal:8000/sse"]
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    command: ["--port", "8000", "--server-type", "sse", "--", "http://pfn-mcp:8000/sse"]
     ports:
       - "127.0.0.1:8001:8000"
+    depends_on:
+      pfn-mcp:
+        condition: service_healthy
     networks:
       - proto-net
     healthcheck:

@@ -8,6 +8,12 @@ model_list:
       model: claude-sonnet-4-20250514
       api_key: os.environ/ANTHROPIC_API_KEY
 
+  # MiniMax - alternative model
+  - model_name: minimax
+    litellm_params:
+      model: minimax/MiniMax-Text-01
+      api_key: os.environ/MINIMAX_API_KEY
+
 litellm_settings:
   # Request logging for debugging
   set_verbose: false
