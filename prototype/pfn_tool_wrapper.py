@@ -2,7 +2,7 @@
 title: PFN Energy Tools
 description: Tenant-scoped energy monitoring tools powered by PFN MCP
 author: PFN Team
-version: 0.4.0
+version: 0.5.0
 license: MIT
 
 Thin wrapper that injects tenant context into MCP tool calls.
@@ -154,15 +154,24 @@ class Tools:
         logger.info(json.dumps(log_entry, default=str))
 
     async def _call_mcp(self, tool_name: str, params: dict, __user__: dict = None) -> str:
-        """Call MCP tool and return JSON response."""
+        """Call MCP tool via mcpo and return JSON response."""
         self._log_tool_call(tool_name, params, __user__)
 
-        # TODO: Replace with actual MCP client
-        return json.dumps({
-            "tool": tool_name,
-            "params": params,
-            "status": "mock_response"
-        })
+        url = f"{self.valves.MCP_SERVER_URL}/{tool_name}"
+        data = json.dumps(params).encode()
+
+        req = Request(
+            url,
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+
+        try:
+            with urlopen(req, timeout=30) as resp:
+                return resp.read().decode()
+        except Exception as e:
+            return json.dumps({"error": str(e), "tool": tool_name})
 
     # =========================================================================
     # TENANT-AWARE TOOLS (inject tenant)
