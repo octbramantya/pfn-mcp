@@ -208,15 +208,10 @@ class Tools:
         tenant = self._get_tenant_code(__user__)
         return await self._call_mcp("get_tenant_summary", {"tenant_name": tenant}, __user__)
 
-    async def get_electricity_cost(self, period: str = "7d", breakdown: str = "none", __user__: dict = None) -> str:
+    async def get_electricity_cost(self, period: str = "7d", group_by: str = "none", __user__: dict = None) -> str:
         """Get electricity cost for tenant."""
         tenant = self._get_tenant_code(__user__)
-        return await self._call_mcp("get_electricity_cost", {"tenant": tenant, "period": period, "breakdown": breakdown}, __user__)
-
-    async def get_electricity_cost_breakdown(self, device: str, period: str = "7d", group_by: str = "shift_rate", __user__: dict = None) -> str:
-        """Get detailed electricity cost breakdown for a device."""
-        tenant = self._get_tenant_code(__user__)
-        return await self._call_mcp("get_electricity_cost_breakdown", {"tenant": tenant, "device": device, "period": period, "group_by": group_by}, __user__)
+        return await self._call_mcp("get_electricity_cost", {"tenant": tenant, "period": period, "group_by": group_by}, __user__)
 
     async def get_electricity_cost_ranking(self, period: str = "30d", metric: str = "cost", limit: int = 10, __user__: dict = None) -> str:
         """Rank devices by electricity cost within tenant."""
