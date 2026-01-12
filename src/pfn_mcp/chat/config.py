@@ -40,6 +40,16 @@ class ChatSettings(BaseSettings):
     # API keys (LiteLLM reads from env automatically)
     # ANTHROPIC_API_KEY, MINIMAX_API_KEY, OPENAI_API_KEY, etc.
 
+    # Budget settings
+    # Monthly budget per user in USD (None = unlimited)
+    budget_monthly_usd: float | None = None
+    # Budget period: 'monthly' or 'daily'
+    budget_period: str = "monthly"
+    # Warn user when budget reaches this percentage
+    budget_warn_percent: float = 80.0
+    # Block requests when budget reaches this percentage (None = never block)
+    budget_block_percent: float | None = 100.0
+
     @property
     def keycloak_openid_config_url(self) -> str:
         return f"{self.keycloak_url}/realms/{self.keycloak_realm}/.well-known/openid-configuration"

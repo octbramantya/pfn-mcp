@@ -3,7 +3,7 @@
 import json
 import logging
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 from urllib.parse import urlencode
 from uuid import UUID
 
@@ -32,12 +32,12 @@ from .conversations import (
     get_conversation,
     get_messages,
     get_tenant_id_by_code,
-    get_user_token_usage,
     list_conversations,
     update_conversation_title,
 )
 from .llm import ChatMessage, LLMClient
 from .tool_executor import execute_tool_calls
+from .usage import check_budget, get_user_usage
 
 logger = logging.getLogger(__name__)
 
@@ -138,10 +138,15 @@ class UsageResponse(BaseModel):
 
     total_input_tokens: int
     total_output_tokens: int
+    total_tokens: int
     conversation_count: int
     period_start: datetime
-    budget_limit: int | None = None
+    period_end: datetime
+    # Budget info (percentage-based, no dollar amounts exposed to users)
     budget_used_percent: float | None = None
+    budget_remaining_percent: float | None = None
+    is_over_budget: bool = False
+    is_near_limit: bool = False
 
 
 # =============================================================================
@@ -325,6 +330,13 @@ async def chat(
 
     async def generate():
         try:
+            # Check budget before processing
+            is_allowed, budget_error = await check_budget(user.sub)
+            if not is_allowed:
+                err = {"message": budget_error, "type": "budget_exceeded"}
+                yield f"event: error\ndata: {json.dumps(err)}\n\n"
+                return
+
             # Resolve tenant ID for conversation
             tenant_code = user.effective_tenant or user.tenant_code
             if not tenant_code:
@@ -611,37 +623,37 @@ async def update_conversation(
 @app.get("/api/usage", response_model=UsageResponse)
 async def get_usage(
     user: UserContext = Depends(get_current_user),
-    period: str = Query("month", description="Period: 'month', 'week', or 'all'"),
+    period: str = Query("monthly", description="Period: 'monthly', 'daily', or 'all'"),
 ):
     """
     Get user's token usage and budget status.
 
-    The budget is checked against LiteLLM's budget management if configured.
+    Returns percentage-based budget info (no dollar amounts shown to users).
     """
-    # Calculate period start
-    now = datetime.now(UTC)
+    # Map 'month' to 'monthly' for backwards compatibility
     if period == "month":
-        period_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        period = "monthly"
     elif period == "week":
-        period_start = now - timedelta(days=now.weekday())
-        period_start = period_start.replace(hour=0, minute=0, second=0, microsecond=0)
-    else:  # all
-        period_start = datetime(2020, 1, 1, tzinfo=UTC)
+        period = "daily"  # We don't have weekly, use daily
 
-    usage = await get_user_token_usage(user.sub, period_start)
+    stats = await get_user_usage(user.sub, period)
 
-    # TODO: Integrate with LiteLLM budget management
-    # budget_limit = await get_litellm_budget(user.sub)
-    budget_limit = None
-    budget_used_percent = None
+    # Calculate remaining percent
+    remaining_pct = None
+    if stats.budget_used_percent is not None:
+        remaining_pct = max(0, 100 - stats.budget_used_percent)
 
     return UsageResponse(
-        total_input_tokens=usage["total_input_tokens"],
-        total_output_tokens=usage["total_output_tokens"],
-        conversation_count=usage["conversation_count"],
-        period_start=period_start,
-        budget_limit=budget_limit,
-        budget_used_percent=budget_used_percent,
+        total_input_tokens=stats.input_tokens,
+        total_output_tokens=stats.output_tokens,
+        total_tokens=stats.total_tokens,
+        conversation_count=stats.conversation_count,
+        period_start=stats.period_start,
+        period_end=stats.period_end,
+        budget_used_percent=stats.budget_used_percent,
+        budget_remaining_percent=remaining_pct,
+        is_over_budget=stats.is_over_budget,
+        is_near_limit=stats.is_near_limit,
     )
 
 
