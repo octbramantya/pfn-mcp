@@ -30,6 +30,16 @@ class ChatSettings(BaseSettings):
     chat_host: str = "0.0.0.0"
     chat_port: int = 8001
 
+    # LLM settings (via LiteLLM)
+    # Model format: provider/model or just model for Anthropic
+    # Examples: "claude-sonnet-4-20250514", "minimax/MiniMax-M2", "gpt-4o"
+    llm_model: str = "claude-sonnet-4-20250514"
+    llm_temperature: float = 0.7
+    llm_max_tokens: int = 4096
+
+    # API keys (LiteLLM reads from env automatically)
+    # ANTHROPIC_API_KEY, MINIMAX_API_KEY, OPENAI_API_KEY, etc.
+
     @property
     def keycloak_openid_config_url(self) -> str:
         return f"{self.keycloak_url}/realms/{self.keycloak_realm}/.well-known/openid-configuration"
