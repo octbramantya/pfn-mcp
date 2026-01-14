@@ -404,10 +404,12 @@ async def _query_aggregated_telemetry(
 
 
 async def _resolve_device_id(
-    device_id: int | None, device_name: str | None
+    device_id: int | None,
+    device_name: str | None,
+    tenant_id: int | None = None,
 ) -> tuple[int | None, dict | None, str | None]:
     """
-    Resolve device from ID or name.
+    Resolve device from ID or name with optional tenant filtering.
 
     Returns (device_id, device_info, error_message)
     """
@@ -422,25 +424,49 @@ async def _resolve_device_id(
         )
         if not device:
             return None, None, f"Device ID not found: {device_id}"
+        # Validate tenant access if tenant_id is provided
+        if tenant_id is not None and device["tenant_id"] != tenant_id:
+            return None, None, f"Device ID {device_id} not accessible for this tenant"
         return device["id"], dict(device), None
 
-    # Resolve by name - find best match
-    device = await db.fetch_one(
-        """SELECT id, display_name, device_code, tenant_id
-           FROM devices
-           WHERE is_active = true
-             AND (display_name ILIKE $1 OR device_name ILIKE $1)
-           ORDER BY
-               CASE
-                   WHEN LOWER(display_name) = LOWER($2) THEN 0
-                   WHEN LOWER(display_name) LIKE LOWER($2) || '%' THEN 1
-                   ELSE 2
-               END
-           LIMIT 1""",
-        f"%{device_name}%",
-        device_name,
-    )
+    # Resolve by name with optional tenant filter
+    if tenant_id is not None:
+        device = await db.fetch_one(
+            """SELECT id, display_name, device_code, tenant_id
+               FROM devices
+               WHERE is_active = true
+                 AND tenant_id = $1
+                 AND (display_name ILIKE $2 OR device_name ILIKE $2)
+               ORDER BY
+                   CASE
+                       WHEN LOWER(display_name) = LOWER($3) THEN 0
+                       WHEN LOWER(display_name) LIKE LOWER($3) || '%' THEN 1
+                       ELSE 2
+                   END
+               LIMIT 1""",
+            tenant_id,
+            f"%{device_name}%",
+            device_name,
+        )
+    else:
+        device = await db.fetch_one(
+            """SELECT id, display_name, device_code, tenant_id
+               FROM devices
+               WHERE is_active = true
+                 AND (display_name ILIKE $1 OR device_name ILIKE $1)
+               ORDER BY
+                   CASE
+                       WHEN LOWER(display_name) = LOWER($2) THEN 0
+                       WHEN LOWER(display_name) LIKE LOWER($2) || '%' THEN 1
+                       ELSE 2
+                   END
+               LIMIT 1""",
+            f"%{device_name}%",
+            device_name,
+        )
     if not device:
+        if tenant_id is not None:
+            return None, None, f"Device not found in tenant: {device_name}"
         return None, None, f"Device not found: {device_name}"
     return device["id"], dict(device), None
 
@@ -504,6 +530,7 @@ async def _resolve_quantity_id(
 async def get_device_telemetry(
     device_id: int | None = None,
     device_name: str | None = None,
+    tenant: str | None = None,
     quantity_id: int | None = None,
     quantity_search: str | None = None,
     period: str | None = None,
@@ -517,6 +544,7 @@ async def get_device_telemetry(
     Args:
         device_id: Device ID (preferred)
         device_name: Device name (fuzzy search)
+        tenant: Tenant name or code to filter devices (optional)
         quantity_id: Quantity ID (preferred)
         quantity_search: Quantity search term (uses semantic aliases)
         period: Time period like "1h", "24h", "7d", "30d", "3M", "1Y"
@@ -527,9 +555,16 @@ async def get_device_telemetry(
     Returns:
         Dictionary with device, quantity, time range, and data points
     """
-    # Resolve device
+    # Resolve tenant first (if provided)
+    tenant_id = None
+    if tenant:
+        tenant_id, _, error = await resolve_tenant(tenant)
+        if error:
+            return {"error": error}
+
+    # Resolve device with tenant filtering
     resolved_device_id, device_info, error = await _resolve_device_id(
-        device_id, device_name
+        device_id, device_name, tenant_id
     )
     if error:
         return {"error": error}
@@ -754,6 +789,7 @@ def format_telemetry_response(result: dict) -> str:
 
 async def get_quantity_stats(
     device_id: int,
+    tenant: str | None = None,
     quantity_id: int | None = None,
     quantity_search: str | None = None,
     period: str = "30d",
@@ -763,6 +799,7 @@ async def get_quantity_stats(
 
     Args:
         device_id: Device ID to query
+        tenant: Tenant name or code to validate device access (optional)
         quantity_id: Quantity ID (preferred)
         quantity_search: Quantity search term (uses semantic aliases)
         period: Time period to check (default: 30d)
@@ -770,6 +807,13 @@ async def get_quantity_stats(
     Returns:
         Dictionary with device, quantity, period, and stats
     """
+    # Resolve tenant first (if provided)
+    tenant_id = None
+    if tenant:
+        tenant_id, _, error = await resolve_tenant(tenant)
+        if error:
+            return {"error": error}
+
     # Validate device exists
     device = await db.fetch_one(
         """SELECT id, display_name, device_code, tenant_id
@@ -778,6 +822,10 @@ async def get_quantity_stats(
     )
     if not device:
         return {"error": f"Device ID not found: {device_id}"}
+
+    # Validate tenant access if tenant_id is provided
+    if tenant_id is not None and device["tenant_id"] != tenant_id:
+        return {"error": f"Device ID {device_id} not accessible for this tenant"}
 
     # Resolve quantity
     resolved_quantity_id, quantity_info, error = await _resolve_quantity_id(
