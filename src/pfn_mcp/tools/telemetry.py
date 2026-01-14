@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 from pfn_mcp import db
 from pfn_mcp.tools.datetime_utils import format_display_datetime
-from pfn_mcp.tools.quantities import QUANTITY_ALIASES
+from pfn_mcp.tools.quantities import expand_quantity_aliases
 from pfn_mcp.tools.resolve import resolve_tenant
 
 logger = logging.getLogger(__name__)
@@ -492,35 +492,18 @@ async def _resolve_quantity_id(
             return None, None, f"Quantity ID not found: {quantity_id}"
         return quantity["id"], dict(quantity), None
 
-    # Resolve by search - check semantic aliases first
-    search_upper = quantity_search.upper().strip()
-    alias_patterns = []
-    for alias, patterns in QUANTITY_ALIASES.items():
-        if alias.upper() in search_upper or search_upper in alias.upper():
-            alias_patterns.extend(patterns)
-
-    if alias_patterns:
-        # Build OR conditions for alias patterns
-        conditions = " OR ".join(
-            f"quantity_code ILIKE '%{p}%'" for p in alias_patterns
-        )
-        quantity = await db.fetch_one(
-            f"""SELECT id, quantity_code, quantity_name, unit, aggregation_method
-                FROM quantities
-                WHERE is_active = true AND ({conditions})
-                ORDER BY quantity_name
-                LIMIT 1"""
-        )
-    else:
-        quantity = await db.fetch_one(
-            """SELECT id, quantity_code, quantity_name, unit, aggregation_method
-               FROM quantities
-               WHERE is_active = true
-                 AND (quantity_name ILIKE $1 OR quantity_code ILIKE $1)
-               ORDER BY quantity_name
-               LIMIT 1""",
-            f"%{quantity_search}%",
-        )
+    # Resolve by search - expand semantic aliases
+    alias_patterns = expand_quantity_aliases(quantity_search)
+    conditions = " OR ".join(
+        f"quantity_code ILIKE '{p}'" for p in alias_patterns
+    )
+    quantity = await db.fetch_one(
+        f"""SELECT id, quantity_code, quantity_name, unit, aggregation_method
+            FROM quantities
+            WHERE is_active = true AND ({conditions})
+            ORDER BY quantity_name
+            LIMIT 1"""
+    )
 
     if not quantity:
         return None, None, f"Quantity not found: {quantity_search}"
