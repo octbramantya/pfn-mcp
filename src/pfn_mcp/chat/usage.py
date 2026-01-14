@@ -4,24 +4,28 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from litellm import get_model_cost_map
-
 from pfn_mcp.db import fetch_one
 
 from .config import chat_settings
 
 logger = logging.getLogger(__name__)
 
-# Cache model costs to avoid repeated lookups
-_model_costs: dict | None = None
+# Claude model pricing (input_cost_per_token, output_cost_per_token) in USD
+# Source: https://www.anthropic.com/pricing
+CLAUDE_MODEL_COSTS: dict[str, tuple[float, float]] = {
+    # Claude Sonnet 4: $3/1M input, $15/1M output
+    "claude-sonnet-4": (3e-06, 1.5e-05),
+    "claude-sonnet-4-20250514": (3e-06, 1.5e-05),
+    # Claude Opus 4: $15/1M input, $75/1M output
+    "claude-opus-4": (1.5e-05, 7.5e-05),
+    "claude-opus-4-20250514": (1.5e-05, 7.5e-05),
+    # Claude Haiku 3.5: $0.80/1M input, $4/1M output
+    "claude-3-5-haiku": (8e-07, 4e-06),
+    "claude-3-5-haiku-20241022": (8e-07, 4e-06),
+}
 
-
-def _get_model_costs() -> dict:
-    """Get model cost map from LiteLLM."""
-    global _model_costs
-    if _model_costs is None:
-        _model_costs = get_model_cost_map("")
-    return _model_costs
+# Default pricing (Claude Sonnet 4)
+DEFAULT_COST_PER_TOKEN = (3e-06, 1.5e-05)
 
 
 def get_cost_per_token(model: str) -> tuple[float, float]:
@@ -34,28 +38,18 @@ def get_cost_per_token(model: str) -> tuple[float, float]:
     Returns:
         Tuple of (input_cost_per_token, output_cost_per_token) in USD
     """
-    costs = _get_model_costs()
-
     # Try exact match first
-    if model in costs:
-        info = costs[model]
-        return (
-            info.get("input_cost_per_token", 0.0),
-            info.get("output_cost_per_token", 0.0),
-        )
+    if model in CLAUDE_MODEL_COSTS:
+        return CLAUDE_MODEL_COSTS[model]
 
     # Try partial match (e.g., 'claude-sonnet-4' matches 'claude-sonnet-4-20250514')
-    for key, info in costs.items():
-        if model in key or key in model:
-            return (
-                info.get("input_cost_per_token", 0.0),
-                info.get("output_cost_per_token", 0.0),
-            )
+    for key, costs in CLAUDE_MODEL_COSTS.items():
+        if key in model or model in key:
+            return costs
 
     # Default to Claude Sonnet 4 pricing if model not found
-    # $3/1M input, $15/1M output
     logger.warning(f"Model '{model}' not found in cost map, using default pricing")
-    return (3e-06, 1.5e-05)
+    return DEFAULT_COST_PER_TOKEN
 
 
 def calculate_cost(

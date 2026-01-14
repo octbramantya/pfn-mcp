@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -11,31 +11,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import { deleteConversation, listConversations } from '@/lib/api';
+import { useConversations } from '@/contexts/ConversationsContext';
+import { deleteConversation, updateConversationTitle } from '@/lib/api';
 import type { Conversation } from '@/lib/types';
 
 export function ConversationList() {
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const { conversations, isLoading, refresh, activeConversationId, setActiveConversationId } = useConversations();
   const [deleteTarget, setDeleteTarget] = useState<Conversation | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-
-  // Load conversations
-  useEffect(() => {
-    const loadConversations = async () => {
-      try {
-        const data = await listConversations(50);
-        setConversations(data);
-      } catch (error) {
-        console.error('Failed to load conversations:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    loadConversations();
-  }, []);
+  const [renameTarget, setRenameTarget] = useState<Conversation | null>(null);
+  const [newTitle, setNewTitle] = useState('');
+  const [isRenaming, setIsRenaming] = useState(false);
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
@@ -43,13 +31,35 @@ export function ConversationList() {
     setIsDeleting(true);
     try {
       await deleteConversation(deleteTarget.id);
-      setConversations((prev) => prev.filter((c) => c.id !== deleteTarget.id));
+      await refresh();
       setDeleteTarget(null);
     } catch (error) {
       console.error('Failed to delete conversation:', error);
     } finally {
       setIsDeleting(false);
     }
+  };
+
+  const handleRename = async () => {
+    if (!renameTarget || !newTitle.trim()) return;
+
+    setIsRenaming(true);
+    try {
+      await updateConversationTitle(renameTarget.id, newTitle.trim());
+      await refresh();
+      setRenameTarget(null);
+      setNewTitle('');
+    } catch (error) {
+      console.error('Failed to rename conversation:', error);
+    } finally {
+      setIsRenaming(false);
+    }
+  };
+
+  const openRenameDialog = (conversation: Conversation, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRenameTarget(conversation);
+    setNewTitle(conversation.title || '');
   };
 
   const formatDate = (dateString: string) => {
@@ -93,7 +103,10 @@ export function ConversationList() {
         {conversations.map((conversation) => (
           <div
             key={conversation.id}
-            className="group flex items-center gap-2 p-2 rounded-md hover:bg-sidebar-accent cursor-pointer"
+            className={`group flex items-center gap-2 p-2 rounded-md hover:bg-sidebar-accent cursor-pointer ${
+              activeConversationId === conversation.id ? 'bg-sidebar-accent' : ''
+            }`}
+            onClick={() => setActiveConversationId(conversation.id)}
           >
             <div className="flex-1 min-w-0">
               <div className="text-sm font-medium truncate text-sidebar-foreground">
@@ -103,17 +116,29 @@ export function ConversationList() {
                 {formatDate(conversation.updated_at)}
               </div>
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="opacity-0 group-hover:opacity-100 h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
-              onClick={(e) => {
-                e.stopPropagation();
-                setDeleteTarget(conversation);
-              }}
-            >
-              ×
-            </Button>
+            <div className="flex gap-1 opacity-0 group-hover:opacity-100">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+                onClick={(e) => openRenameDialog(conversation, e)}
+                title="Rename"
+              >
+                ✎
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDeleteTarget(conversation);
+                }}
+                title="Delete"
+              >
+                ×
+              </Button>
+            </div>
           </div>
         ))}
       </div>
@@ -142,6 +167,43 @@ export function ConversationList() {
               disabled={isDeleting}
             >
               {isDeleting ? 'Deleting...' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Rename dialog */}
+      <Dialog open={!!renameTarget} onOpenChange={() => setRenameTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rename Conversation</DialogTitle>
+            <DialogDescription>
+              Enter a new title for this conversation.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            value={newTitle}
+            onChange={(e) => setNewTitle(e.target.value)}
+            placeholder="Conversation title"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !isRenaming) {
+                handleRename();
+              }
+            }}
+          />
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setRenameTarget(null)}
+              disabled={isRenaming}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleRename}
+              disabled={isRenaming || !newTitle.trim()}
+            >
+              {isRenaming ? 'Saving...' : 'Save'}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -281,12 +281,7 @@ async def switch_tenant(
 # Chat Endpoint
 # =============================================================================
 
-# System prompt for the assistant
-SYSTEM_PROMPT = """You are a helpful energy monitoring assistant for PFN.
-You help users query and analyze energy consumption data from their power meters.
-You have access to tools that can list devices, query electricity costs, and more.
-Always be concise and helpful. When presenting data, format it clearly.
-If you're unsure about something, ask for clarification."""
+# System prompt is configured via chat_settings.system_prompt
 
 
 async def _generate_title(first_message: str) -> str:
@@ -390,10 +385,20 @@ async def chat(
             # Build message history
             db_messages = await get_messages(conversation_id, user.sub)
 
-            messages = [ChatMessage(role="system", content=SYSTEM_PROMPT)]
+            messages: list[ChatMessage] = []
             for msg in db_messages:
-                if msg["role"] in ("user", "assistant"):
-                    messages.append(ChatMessage(role=msg["role"], content=msg["content"]))
+                if msg["role"] == "user":
+                    messages.append(ChatMessage(role="user", content=msg["content"]))
+                elif msg["role"] == "assistant":
+                    # Parse tool_calls from JSON if present
+                    tool_calls_data = None
+                    if msg.get("tool_calls"):
+                        tool_calls_data = json.loads(msg["tool_calls"]) if isinstance(msg["tool_calls"], str) else msg["tool_calls"]
+                    messages.append(ChatMessage(
+                        role="assistant",
+                        content=msg["content"],
+                        tool_calls=tool_calls_data,
+                    ))
                 elif msg["role"] == "tool":
                     messages.append(
                         ChatMessage(
@@ -430,21 +435,32 @@ async def chat(
                         total_input_tokens += chunk.input_tokens
                         total_output_tokens += chunk.output_tokens
 
-                # Save assistant response
-                if accumulated_content:
-                    await add_message(
-                        conversation_id=conversation_id,
-                        role="assistant",
-                        content=accumulated_content,
-                        input_tokens=total_input_tokens,
-                        output_tokens=total_output_tokens,
-                    )
-
                 # Handle tool calls
                 if not tool_calls:
+                    # No tool calls - save final assistant response and break
+                    if accumulated_content:
+                        await add_message(
+                            conversation_id=conversation_id,
+                            role="assistant",
+                            content=accumulated_content,
+                            input_tokens=total_input_tokens,
+                            output_tokens=total_output_tokens,
+                        )
                     break  # No tool calls, we're done
 
-                # Add assistant message with tool calls to history
+                logger.info(f"Tool calls received: {tool_calls}")
+
+                # Save assistant message WITH tool_calls to database
+                await add_message(
+                    conversation_id=conversation_id,
+                    role="assistant",
+                    content=accumulated_content or "",  # Use empty string, not NULL
+                    tool_calls=tool_calls,
+                    input_tokens=total_input_tokens,
+                    output_tokens=total_output_tokens,
+                )
+
+                # Add assistant message with tool calls to history for current request
                 messages.append(
                     ChatMessage(
                         role="assistant",
@@ -452,6 +468,8 @@ async def chat(
                         tool_calls=tool_calls,
                     )
                 )
+
+                logger.info(f"Message history length: {len(messages)}")
 
                 # Execute tools
                 tool_results = await execute_tool_calls(tool_calls, tenant_code)
@@ -485,6 +503,7 @@ async def chat(
                             role="tool",
                             content=result.result,
                             tool_call_id=result.tool_call_id,
+                            name=result.tool_name,  # Required by some providers like MiniMax
                         )
                     )
 

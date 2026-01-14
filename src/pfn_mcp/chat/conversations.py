@@ -140,9 +140,10 @@ async def delete_conversation(conversation_id: UUID, user_id: str) -> bool:
 async def add_message(
     conversation_id: UUID,
     role: str,
-    content: str,
+    content: str | None,
     tool_name: str | None = None,
     tool_call_id: str | None = None,
+    tool_calls: list[dict] | None = None,
     input_tokens: int | None = None,
     output_tokens: int | None = None,
 ) -> dict:
@@ -155,12 +156,15 @@ async def add_message(
         content: Message content
         tool_name: Tool name (for tool messages)
         tool_call_id: Tool call ID (for tool messages)
+        tool_calls: Tool calls JSON (for assistant messages with tool use)
         input_tokens: Token count for input
         output_tokens: Token count for output
 
     Returns:
         Created message dict
     """
+    import json as json_module
+
     # Get next sequence number
     seq_query = """
         SELECT COALESCE(MAX(sequence), 0) + 1
@@ -169,13 +173,16 @@ async def add_message(
     """
     sequence = await fetch_val(seq_query, conversation_id)
 
+    # Serialize tool_calls to JSON string if present
+    tool_calls_json = json_module.dumps(tool_calls) if tool_calls else None
+
     # Insert message
     query = """
         INSERT INTO mcp.messages
-            (conversation_id, role, content, tool_name, tool_call_id,
+            (conversation_id, role, content, tool_name, tool_call_id, tool_calls,
              input_tokens, output_tokens, sequence)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        RETURNING id, conversation_id, role, content, tool_name, tool_call_id,
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        RETURNING id, conversation_id, role, content, tool_name, tool_call_id, tool_calls,
                   input_tokens, output_tokens, sequence, created_at
     """
     result = await fetch_one(
@@ -185,6 +192,7 @@ async def add_message(
         content,
         tool_name,
         tool_call_id,
+        tool_calls_json,
         input_tokens,
         output_tokens,
         sequence,
@@ -226,7 +234,7 @@ async def get_messages(
     if limit:
         # Get most recent N messages
         query = """
-            SELECT id, conversation_id, role, content, tool_name, tool_call_id,
+            SELECT id, conversation_id, role, content, tool_name, tool_call_id, tool_calls,
                    input_tokens, output_tokens, sequence, created_at
             FROM mcp.messages
             WHERE conversation_id = $1
@@ -237,7 +245,7 @@ async def get_messages(
         return list(reversed(messages))  # Return in chronological order
     else:
         query = """
-            SELECT id, conversation_id, role, content, tool_name, tool_call_id,
+            SELECT id, conversation_id, role, content, tool_name, tool_call_id, tool_calls,
                    input_tokens, output_tokens, sequence, created_at
             FROM mcp.messages
             WHERE conversation_id = $1

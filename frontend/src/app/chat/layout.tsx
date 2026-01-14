@@ -9,6 +9,7 @@ import { UsageMeter } from '@/components/UsageMeter';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useAuth } from '@/contexts/AuthContext';
+import { ConversationsProvider } from '@/contexts/ConversationsContext';
 
 export default function ChatLayout({
   children,
@@ -39,6 +40,7 @@ export default function ChatLayout({
   }
 
   return (
+    <ConversationsProvider>
     <div className="flex h-screen bg-background">
       {/* Sidebar */}
       <aside
@@ -102,5 +104,6 @@ export default function ChatLayout({
         <div className="flex-1 overflow-hidden">{children}</div>
       </main>
     </div>
+    </ConversationsProvider>
   );
 }

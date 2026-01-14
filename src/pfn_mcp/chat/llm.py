@@ -1,49 +1,60 @@
-"""LLM client - unified interface via LiteLLM for multi-model support."""
+"""LLM client - direct Anthropic SDK integration for Claude models."""
 
+import json
 import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
 
-import litellm
-from litellm import acompletion
+import anthropic
 
 from .config import chat_settings
-from .tool_registry import get_tool_schemas
+from .tool_registry import get_tool_schemas_anthropic
 
 logger = logging.getLogger(__name__)
-
-# Configure LiteLLM
-litellm.set_verbose = False
 
 
 @dataclass
 class ChatMessage:
     """A message in the chat conversation."""
 
-    role: str  # 'user', 'assistant', 'system', 'tool'
+    role: str  # 'user', 'assistant', 'tool'
     content: str | None = None
-    tool_calls: list[dict] | None = None
-    tool_call_id: str | None = None
-    name: str | None = None  # Tool name for tool messages
+    tool_calls: list[dict] | None = None  # For assistant messages with tool use
+    tool_call_id: str | None = None  # For tool result messages
+    name: str | None = None  # Tool name for tool results
 
-    def to_dict(self) -> dict:
-        """Convert to LiteLLM message format."""
-        msg: dict[str, Any] = {"role": self.role}
+    def to_anthropic(self) -> dict:
+        """Convert to Anthropic message format."""
+        if self.role == "tool":
+            # Tool results are sent as user messages with tool_result content
+            return {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": self.tool_call_id,
+                        "content": self.content or "",
+                    }
+                ],
+            }
 
-        if self.content is not None:
-            msg["content"] = self.content
+        if self.role == "assistant" and self.tool_calls:
+            # Assistant message with tool use
+            content_blocks: list[dict] = []
+            if self.content:
+                content_blocks.append({"type": "text", "text": self.content})
+            for tc in self.tool_calls:
+                content_blocks.append({
+                    "type": "tool_use",
+                    "id": tc["id"],
+                    "name": tc["function"]["name"],
+                    "input": json.loads(tc["function"]["arguments"]) if isinstance(tc["function"]["arguments"], str) else tc["function"]["arguments"],
+                })
+            return {"role": "assistant", "content": content_blocks}
 
-        if self.tool_calls:
-            msg["tool_calls"] = self.tool_calls
-
-        if self.tool_call_id:
-            msg["tool_call_id"] = self.tool_call_id
-
-        if self.name:
-            msg["name"] = self.name
-
-        return msg
+        # Regular user or assistant message
+        return {"role": self.role, "content": self.content or ""}
 
 
 @dataclass
@@ -71,9 +82,9 @@ class ChatResponse:
 
 class LLMClient:
     """
-    Multi-model LLM client using LiteLLM.
+    Claude LLM client using direct Anthropic SDK.
 
-    Supports Claude, MiniMax, OpenAI, and any LiteLLM-compatible model.
+    Provides reliable tool calling without LiteLLM abstraction layer issues.
     """
 
     def __init__(self, model: str | None = None):
@@ -81,11 +92,12 @@ class LLMClient:
         Initialize LLM client.
 
         Args:
-            model: Model identifier (e.g., 'claude-sonnet-4-20250514', 'minimax/MiniMax-M2')
+            model: Model identifier (e.g., 'claude-sonnet-4-20250514')
                    If None, uses default from settings.
         """
         self.model = model or chat_settings.llm_model
-        self.tools = get_tool_schemas()
+        self.client = anthropic.AsyncAnthropic(api_key=chat_settings.anthropic_api_key)
+        self.tools = get_tool_schemas_anthropic()
 
     async def chat(
         self,
@@ -95,7 +107,7 @@ class LLMClient:
         temperature: float = 0.7,
     ) -> ChatResponse | AsyncIterator[StreamChunk]:
         """
-        Send a chat request to the LLM.
+        Send a chat request to Claude.
 
         Args:
             messages: Conversation history
@@ -106,146 +118,145 @@ class LLMClient:
         Returns:
             ChatResponse for non-streaming, AsyncIterator[StreamChunk] for streaming
         """
-        # Convert messages to LiteLLM format
-        msg_dicts = [m.to_dict() for m in messages]
+        # Convert messages to Anthropic format
+        anthropic_messages = self._convert_messages(messages)
 
         # Build request kwargs
         kwargs: dict[str, Any] = {
             "model": self.model,
-            "messages": msg_dicts,
+            "messages": anthropic_messages,
+            "max_tokens": chat_settings.llm_max_tokens,
             "temperature": temperature,
-            "stream": stream,
         }
 
-        # Add tools if enabled and model supports them
-        if use_tools and self.tools and self._model_supports_tools():
-            kwargs["tools"] = self.tools
-            kwargs["tool_choice"] = "auto"
+        # Add system prompt if configured
+        if chat_settings.system_prompt:
+            kwargs["system"] = chat_settings.system_prompt
 
-        logger.debug(f"LLM request: model={self.model}, messages={len(messages)}, stream={stream}")
+        # Add tools if enabled
+        if use_tools and self.tools:
+            kwargs["tools"] = self.tools
+
+        logger.debug(f"Claude request: model={self.model}, messages={len(messages)}, stream={stream}")
 
         if stream:
             return self._stream_response(**kwargs)
         else:
             return await self._complete(**kwargs)
 
-    def _model_supports_tools(self) -> bool:
-        """Check if current model supports tool calling."""
-        # Most modern models support tools
-        # MiniMax M2 supports function calling
-        model_lower = self.model.lower()
+    def _convert_messages(self, messages: list[ChatMessage]) -> list[dict]:
+        """Convert messages to Anthropic format, merging consecutive same-role messages."""
+        anthropic_messages: list[dict] = []
 
-        # Known models with tool support
-        tool_models = [
-            "claude",
-            "gpt-4",
-            "gpt-3.5",
-            "minimax",
-            "gemini",
-            "mistral",
-        ]
+        for msg in messages:
+            # Skip system messages - they're passed as top-level parameter
+            if msg.role == "system":
+                continue
 
-        return any(m in model_lower for m in tool_models)
+            converted = msg.to_anthropic()
+
+            # Anthropic requires alternating user/assistant messages
+            # Merge consecutive same-role messages
+            if anthropic_messages and anthropic_messages[-1]["role"] == converted["role"]:
+                last = anthropic_messages[-1]
+                # Merge content
+                if isinstance(last["content"], str) and isinstance(converted["content"], str):
+                    last["content"] = last["content"] + "\n" + converted["content"]
+                elif isinstance(last["content"], list) and isinstance(converted["content"], list):
+                    last["content"].extend(converted["content"])
+                elif isinstance(last["content"], str) and isinstance(converted["content"], list):
+                    last["content"] = [{"type": "text", "text": last["content"]}] + converted["content"]
+                elif isinstance(last["content"], list) and isinstance(converted["content"], str):
+                    last["content"].append({"type": "text", "text": converted["content"]})
+            else:
+                anthropic_messages.append(converted)
+
+        return anthropic_messages
 
     async def _complete(self, **kwargs: Any) -> ChatResponse:
         """Non-streaming completion."""
         try:
-            response = await acompletion(**kwargs)
+            response = await self.client.messages.create(**kwargs)
 
-            choice = response.choices[0]
-            message = choice.message
+            # Extract content and tool calls
+            content_parts: list[str] = []
+            tool_calls: list[dict] = []
 
-            # Extract tool calls if present
-            tool_calls = None
-            if hasattr(message, "tool_calls") and message.tool_calls:
-                tool_calls = [
-                    {
-                        "id": tc.id,
+            for block in response.content:
+                if block.type == "text":
+                    content_parts.append(block.text)
+                elif block.type == "tool_use":
+                    tool_calls.append({
+                        "id": block.id,
                         "type": "function",
                         "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments,
+                            "name": block.name,
+                            "arguments": json.dumps(block.input),
                         },
-                    }
-                    for tc in message.tool_calls
-                ]
-
-            # Get usage info
-            usage = response.usage or {}
-            input_tokens = getattr(usage, "prompt_tokens", 0)
-            output_tokens = getattr(usage, "completion_tokens", 0)
+                    })
 
             return ChatResponse(
-                content=message.content,
-                tool_calls=tool_calls,
-                finish_reason=choice.finish_reason,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
+                content="\n".join(content_parts) if content_parts else None,
+                tool_calls=tool_calls if tool_calls else None,
+                finish_reason=response.stop_reason,
+                input_tokens=response.usage.input_tokens,
+                output_tokens=response.usage.output_tokens,
                 model=response.model,
             )
 
-        except Exception as e:
-            logger.error(f"LLM completion error: {e}")
+        except anthropic.APIError as e:
+            logger.error(f"Claude API error: {e}")
             raise
 
     async def _stream_response(self, **kwargs: Any) -> AsyncIterator[StreamChunk]:
         """Streaming completion."""
         try:
-            response = await acompletion(**kwargs)
+            async with self.client.messages.stream(**kwargs) as stream:
+                accumulated_text = ""
+                tool_calls: list[dict] = []
+                current_tool: dict | None = None
+                input_tokens = 0
+                output_tokens = 0
 
-            accumulated_tool_calls: dict[int, dict] = {}
-            input_tokens = 0
-            output_tokens = 0
+                async for event in stream:
+                    if event.type == "message_start":
+                        input_tokens = event.message.usage.input_tokens
 
-            async for chunk in response:
-                delta = chunk.choices[0].delta if chunk.choices else None
-                finish_reason = chunk.choices[0].finish_reason if chunk.choices else None
-
-                # Track usage if provided
-                if hasattr(chunk, "usage") and chunk.usage:
-                    input_tokens = getattr(chunk.usage, "prompt_tokens", input_tokens)
-                    output_tokens = getattr(chunk.usage, "completion_tokens", output_tokens)
-
-                # Content chunk
-                content = None
-                if delta and hasattr(delta, "content") and delta.content:
-                    content = delta.content
-
-                # Tool call chunks (accumulated across multiple chunks)
-                if delta and hasattr(delta, "tool_calls") and delta.tool_calls:
-                    for tc in delta.tool_calls:
-                        idx = tc.index
-                        if idx not in accumulated_tool_calls:
-                            accumulated_tool_calls[idx] = {
-                                "id": tc.id or "",
+                    elif event.type == "content_block_start":
+                        if event.content_block.type == "tool_use":
+                            current_tool = {
+                                "id": event.content_block.id,
                                 "type": "function",
-                                "function": {"name": "", "arguments": ""},
+                                "function": {
+                                    "name": event.content_block.name,
+                                    "arguments": "",
+                                },
                             }
-                        if tc.id:
-                            accumulated_tool_calls[idx]["id"] = tc.id
-                        if tc.function:
-                            if tc.function.name:
-                                accumulated_tool_calls[idx]["function"]["name"] = tc.function.name
-                            if tc.function.arguments:
-                                accumulated_tool_calls[idx]["function"][
-                                    "arguments"
-                                ] += tc.function.arguments
 
-                # Yield chunk
-                tool_calls = None
-                if finish_reason == "tool_calls" and accumulated_tool_calls:
-                    tool_calls = list(accumulated_tool_calls.values())
+                    elif event.type == "content_block_delta":
+                        if event.delta.type == "text_delta":
+                            yield StreamChunk(content=event.delta.text)
+                            accumulated_text += event.delta.text
+                        elif event.delta.type == "input_json_delta" and current_tool:
+                            current_tool["function"]["arguments"] += event.delta.partial_json
 
-                yield StreamChunk(
-                    content=content,
-                    tool_calls=tool_calls,
-                    finish_reason=finish_reason,
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                )
+                    elif event.type == "content_block_stop":
+                        if current_tool:
+                            tool_calls.append(current_tool)
+                            current_tool = None
 
-        except Exception as e:
-            logger.error(f"LLM streaming error: {e}")
+                    elif event.type == "message_delta":
+                        output_tokens = event.usage.output_tokens
+                        # Final chunk with tool calls and finish reason
+                        yield StreamChunk(
+                            tool_calls=tool_calls if tool_calls else None,
+                            finish_reason=event.delta.stop_reason,
+                            input_tokens=input_tokens,
+                            output_tokens=output_tokens,
+                        )
+
+        except anthropic.APIError as e:
+            logger.error(f"Claude streaming error: {e}")
             raise
 
 

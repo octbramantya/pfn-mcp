@@ -136,6 +136,17 @@ def create_jwt_token(user: UserContext) -> str:
 
 def decode_jwt_token(token: str) -> dict:
     """Decode and validate a JWT token."""
+    # Dev mode: accept mock tokens from frontend
+    if chat_settings.dev_auth and token.endswith(".mock-signature"):
+        try:
+            return jwt.decode(token, options={"verify_signature": False})
+        except jwt.DecodeError as e:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Invalid mock token: {e}",
+            )
+
+    # Production: validate signature
     try:
         return jwt.decode(
             token,

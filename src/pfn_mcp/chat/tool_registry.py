@@ -191,3 +191,54 @@ def get_tenant_aware_tools() -> set[str]:
     """Get set of tool names that are tenant-aware."""
     metadata = get_tool_metadata()
     return {name for name, info in metadata.items() if info.get("tenant_aware")}
+
+
+def get_tool_schemas_anthropic() -> list[dict]:
+    """Get tool schemas in Anthropic format (different from OpenAI)."""
+    tools_yaml = load_tools_yaml()
+    schemas = []
+
+    for tool_def in tools_yaml:
+        name = tool_def["name"]
+        if name not in TOOL_REGISTRY:
+            continue
+
+        # Build input schema
+        properties = {}
+        required = []
+
+        for param in tool_def.get("params", []):
+            param_name = param["name"]
+            param_schema: dict[str, Any] = {"type": param.get("type", "string")}
+
+            if "description" in param:
+                param_schema["description"] = param["description"]
+            if "enum" in param:
+                param_schema["enum"] = param["enum"]
+
+            # Handle array types
+            if param.get("type") == "array":
+                items_type = param.get("items", "string")
+                if items_type == "object":
+                    param_schema["items"] = {"type": "object"}
+                else:
+                    param_schema["items"] = {"type": items_type}
+
+            properties[param_name] = param_schema
+
+            if param.get("required"):
+                required.append(param_name)
+
+        # Anthropic tool format
+        schema = {
+            "name": name,
+            "description": tool_def["description"],
+            "input_schema": {
+                "type": "object",
+                "properties": properties,
+                "required": required,
+            },
+        }
+        schemas.append(schema)
+
+    return schemas

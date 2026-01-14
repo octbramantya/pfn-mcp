@@ -10,6 +10,7 @@ class ChatSettings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        extra="ignore",  # Ignore MCP server env vars
     )
 
     # Database
@@ -30,15 +31,19 @@ class ChatSettings(BaseSettings):
     chat_host: str = "0.0.0.0"
     chat_port: int = 8001
 
-    # LLM settings (via LiteLLM)
-    # Model format: provider/model or just model for Anthropic
-    # Examples: "claude-sonnet-4-20250514", "minimax/MiniMax-M2", "gpt-4o"
+    # LLM settings (direct Anthropic SDK)
     llm_model: str = "claude-sonnet-4-20250514"
     llm_temperature: float = 0.7
     llm_max_tokens: int = 4096
 
-    # API keys (LiteLLM reads from env automatically)
-    # ANTHROPIC_API_KEY, MINIMAX_API_KEY, OPENAI_API_KEY, etc.
+    # Anthropic API key
+    anthropic_api_key: str = ""
+
+    # System prompt for Claude (optional)
+    system_prompt: str = "You are an energy monitoring assistant for PFN (PT Forisa Nusapersada). You help users query electricity consumption, power demand, costs, and other metrics from their power meters. Use the available tools to fetch data from the database. Be concise and helpful."
+
+    # Development mode - accepts mock JWT tokens from frontend
+    dev_auth: bool = False
 
     # Budget settings
     # Monthly budget per user in USD (None = unlimited)

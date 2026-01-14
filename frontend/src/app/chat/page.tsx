@@ -4,36 +4,53 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ChatInput } from '@/components/ChatInput';
 import { ChatMessages } from '@/components/ChatMessages';
-import { getConversation, listConversations } from '@/lib/api';
+import { useConversations } from '@/contexts/ConversationsContext';
+import { getConversation } from '@/lib/api';
 import { streamChat } from '@/lib/sse';
 import type { ChatEvent, Message, StreamingMessage, ToolCallDisplay } from '@/lib/types';
+
+// Generate unique IDs
+let messageIdCounter = 0;
+function generateMessageId(prefix: string): string {
+  return `${prefix}-${Date.now()}-${++messageIdCounter}`;
+}
 
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [streamingMessage, setStreamingMessage] = useState<StreamingMessage | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isNewChat, setIsNewChat] = useState(false); // Track if user wants new chat
   const abortControllerRef = useRef<AbortController | null>(null);
+  const streamingContentRef = useRef<string>('');
 
-  // Load most recent conversation on mount
+  const { conversations, refresh, activeConversationId, setActiveConversationId } = useConversations();
+
+  // Load conversation when active conversation changes
   useEffect(() => {
-    const loadRecentConversation = async () => {
-      try {
-        const conversations = await listConversations(1);
-        if (conversations.length > 0) {
-          const recent = conversations[0];
-          const detail = await getConversation(recent.id);
+    const loadConversation = async () => {
+      if (activeConversationId) {
+        setIsNewChat(false); // User selected a conversation, reset new chat flag
+        try {
+          const detail = await getConversation(activeConversationId);
           setConversationId(detail.id);
           // Filter out tool messages for display (they're shown inline)
           setMessages(detail.messages.filter((m) => m.role !== 'tool'));
+        } catch (error) {
+          console.error('Failed to load conversation:', error);
         }
-      } catch (error) {
-        console.error('Failed to load recent conversation:', error);
       }
     };
 
-    loadRecentConversation();
-  }, []);
+    loadConversation();
+  }, [activeConversationId]);
+
+  // Load most recent conversation on mount (but not if user started new chat)
+  useEffect(() => {
+    if (conversations.length > 0 && !activeConversationId && !isNewChat) {
+      setActiveConversationId(conversations[0].id);
+    }
+  }, [conversations, activeConversationId, setActiveConversationId, isNewChat]);
 
   const handleSendMessage = useCallback(
     async (content: string) => {
@@ -43,7 +60,7 @@ export default function ChatPage() {
 
       // Add user message optimistically
       const userMessage: Message = {
-        id: `temp-${Date.now()}`,
+        id: generateMessageId('user'),
         role: 'user',
         content,
         sequence: messages.length,
@@ -52,6 +69,7 @@ export default function ChatPage() {
       setMessages((prev) => [...prev, userMessage]);
 
       // Initialize streaming message
+      streamingContentRef.current = '';
       setStreamingMessage({
         role: 'assistant',
         content: '',
@@ -69,9 +87,13 @@ export default function ChatPage() {
           { message: content, conversation_id: conversationId },
           abortControllerRef.current.signal
         )) {
-          handleStreamEvent(event, (id) => {
+          handleStreamEvent(event, async (id) => {
             newConversationId = id;
             setConversationId(id);
+            setActiveConversationId(id);
+            setIsNewChat(false); // Conversation created, reset flag
+            // Refresh conversation list to show new conversation
+            await refresh();
           });
         }
       } catch (error) {
@@ -88,25 +110,25 @@ export default function ChatPage() {
           );
         }
       } finally {
-        // Finalize streaming message
-        setStreamingMessage((prev) => {
-          if (prev && prev.content) {
-            const finalMessage: Message = {
-              id: `msg-${Date.now()}`,
-              role: 'assistant',
-              content: prev.content,
-              sequence: messages.length + 1,
-              created_at: new Date().toISOString(),
-            };
-            setMessages((msgs) => [...msgs, finalMessage]);
-          }
-          return null;
-        });
+        // Finalize streaming message - use ref to avoid side effects in state updater
+        const finalContent = streamingContentRef.current;
+        if (finalContent) {
+          const finalMessage: Message = {
+            id: generateMessageId('assistant'),
+            role: 'assistant',
+            content: finalContent,
+            sequence: messages.length + 1,
+            created_at: new Date().toISOString(),
+          };
+          setMessages((msgs) => [...msgs, finalMessage]);
+        }
+        streamingContentRef.current = '';
+        setStreamingMessage(null);
         setIsLoading(false);
         abortControllerRef.current = null;
       }
     },
-    [conversationId, isLoading, messages.length]
+    [conversationId, isLoading, messages.length, refresh, setActiveConversationId]
   );
 
   const handleStreamEvent = (
@@ -121,6 +143,7 @@ export default function ChatPage() {
         break;
 
       case 'content':
+        streamingContentRef.current += event.text;
         setStreamingMessage((prev) =>
           prev
             ? { ...prev, content: prev.content + event.text }
@@ -182,7 +205,9 @@ export default function ChatPage() {
     setConversationId(null);
     setMessages([]);
     setStreamingMessage(null);
-  }, []);
+    setActiveConversationId(null);
+    setIsNewChat(true); // Prevent auto-loading previous conversation
+  }, [setActiveConversationId]);
 
   return (
     <div className="flex h-full flex-col">
