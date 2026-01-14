@@ -232,7 +232,6 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             result = await telemetry_tool.get_device_telemetry(
                 device_id=arguments.get("device_id"),
                 device_name=arguments.get("device_name"),
-                tenant=arguments.get("tenant"),
                 quantity_id=arguments.get("quantity_id"),
                 quantity_search=arguments.get("quantity_search"),
                 period=arguments.get("period"),
@@ -253,7 +252,6 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         try:
             result = await telemetry_tool.get_quantity_stats(
                 device_id=device_id,
-                tenant=arguments.get("tenant"),
                 quantity_id=arguments.get("quantity_id"),
                 quantity_search=arguments.get("quantity_search"),
                 period=arguments.get("period", "30d"),
@@ -269,7 +267,6 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             result = await energy_consumption_tool.get_energy_consumption(
                 device_id=arguments.get("device_id"),
                 device_name=arguments.get("device_name"),
-                tenant=arguments.get("tenant"),
                 quantity_id=arguments.get("quantity_id"),
                 quantity_search=arguments.get("quantity_search"),
                 period=arguments.get("period"),
@@ -340,7 +337,6 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     elif name == "list_tags":
         try:
             result = await group_telemetry_tool.list_tags(
-                tenant=arguments.get("tenant"),
                 tag_key=arguments.get("tag_key"),
                 tag_category=arguments.get("tag_category"),
             )
@@ -355,10 +351,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         if not tag_key:
             return [TextContent(type="text", text="Error: tag_key is required")]
         try:
-            result = await group_telemetry_tool.list_tag_values(
-                tenant=arguments.get("tenant"),
-                tag_key=tag_key,
-            )
+            result = await group_telemetry_tool.list_tag_values(tag_key=tag_key)
             response = group_telemetry_tool.format_list_tag_values_response(result)
             return [TextContent(type="text", text=response)]
         except Exception as e:
@@ -383,7 +376,6 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     elif name == "get_group_telemetry":
         try:
             result = await group_telemetry_tool.get_group_telemetry(
-                tenant=arguments.get("tenant"),
                 tag_key=arguments.get("tag_key"),
                 tag_value=arguments.get("tag_value"),
                 tags=arguments.get("tags"),
@@ -407,7 +399,6 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text="Error: groups is required")]
         try:
             result = await group_telemetry_tool.compare_groups(
-                tenant=arguments.get("tenant"),
                 groups=groups,
                 period=arguments.get("period"),
                 start_date=arguments.get("start_date"),
@@ -422,7 +413,6 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     elif name == "get_peak_analysis":
         try:
             result = await peak_analysis_tool.get_peak_analysis(
-                tenant=arguments.get("tenant"),
                 device_id=arguments.get("device_id"),
                 device_name=arguments.get("device_name"),
                 tag_key=arguments.get("tag_key"),
