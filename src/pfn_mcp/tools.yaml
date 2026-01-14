@@ -235,6 +235,9 @@ tools:
       - name: device_name
         type: string
         description: Device name (fuzzy search)
+      - name: tenant
+        type: string
+        description: "Tenant name or code to filter devices (e.g., 'PRS')"
       - name: quantity_id
         type: integer
         description: Quantity ID (preferred over quantity_search)
@@ -270,6 +273,9 @@ tools:
         type: integer
         description: Device ID to query
         required: true
+      - name: tenant
+        type: string
+        description: "Tenant name or code to validate device access (e.g., 'PRS')"
       - name: quantity_id
         type: integer
         description: Quantity ID (preferred over quantity_search)
@@ -296,6 +302,9 @@ tools:
       - name: device_name
         type: string
         description: Device name (fuzzy search)
+      - name: tenant
+        type: string
+        description: "Tenant name or code to filter devices (e.g., 'PRS')"
       - name: quantity_id
         type: integer
         description: "Energy quantity ID (e.g., 124 for Active Energy Delivered)"
@@ -439,7 +448,11 @@ tools:
       List available device tags for grouping.
       Tags allow flexible grouping by process, building, area, etc.
       Shows tag keys, values, and device counts by category.
+      Filters to tags used by devices in the user's tenant.
     params:
+      - name: tenant
+        type: string
+        description: "Tenant name or code to filter tags by devices (e.g., 'PRS')"
       - name: tag_key
         type: string
         description: "Filter by specific tag key (e.g., 'process', 'building')"
@@ -453,7 +466,11 @@ tools:
       List all values for a specific tag key with device counts.
       Shows which devices belong to each tag value.
       Use to explore available groupings before get_group_telemetry.
+      Filters to tags used by devices in the user's tenant.
     params:
+      - name: tenant
+        type: string
+        description: "Tenant name or code to filter tags by devices (e.g., 'PRS')"
       - name: tag_key
         type: string
         description: "Tag key to list values for (e.g., 'process', 'building')"
@@ -486,7 +503,11 @@ tools:
       Group by: single tag (tag_key + tag_value), multiple tags with AND logic (tags array),
       or asset hierarchy (asset_id).
       Supports breakdown by device or daily.
+      Auto-filters to devices in the user's tenant.
     params:
+      - name: tenant
+        type: string
+        description: "Tenant name or code to filter devices (e.g., 'PRS')"
       - name: tag_key
         type: string
         description: "Tag key for single-tag grouping (e.g., 'process', 'building')"
@@ -538,7 +559,11 @@ tools:
       Compare electricity consumption across multiple groups.
       Each group can be defined by tag or asset.
       Returns consumption, cost, and percentage for each group.
+      Auto-filters to devices in the user's tenant.
     params:
+      - name: tenant
+        type: string
+        description: "Tenant name or code to filter devices (e.g., 'PRS')"
       - name: groups
         type: array
         items: object
@@ -567,7 +592,11 @@ tools:
       Returns top N peaks per bucket (hour/day/week).
       Shows which device caused each peak.
       Supports any WAGE quantity: power, flow, pressure, etc.
+      Auto-filters to devices in the user's tenant.
     params:
+      - name: tenant
+        type: string
+        description: "Tenant name or code to filter devices (e.g., 'PRS')"
       - name: device_id
         type: integer
         description: Single device ID

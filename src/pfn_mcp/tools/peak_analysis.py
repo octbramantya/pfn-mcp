@@ -8,6 +8,7 @@ from pfn_mcp import db
 from pfn_mcp.tools.datetime_utils import format_display_datetime
 from pfn_mcp.tools.electricity_cost import parse_period
 from pfn_mcp.tools.group_telemetry import _resolve_asset_devices, _resolve_tag_devices
+from pfn_mcp.tools.resolve import resolve_tenant
 from pfn_mcp.tools.telemetry import _resolve_device_id, _resolve_quantity_id
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,7 @@ def _select_bucket(time_range: timedelta) -> BucketType:
 
 
 async def get_peak_analysis(
+    tenant: str | None = None,
     device_id: int | None = None,
     device_name: str | None = None,
     tag_key: str | None = None,
@@ -61,8 +63,10 @@ async def get_peak_analysis(
 
     Supports single device or group (tag/asset). Returns peak values
     per bucket (hour/day/week) with timestamps.
+    Auto-filters to devices in the user's tenant.
 
     Args:
+        tenant: Tenant name or code to filter devices (optional)
         device_id: Single device ID
         device_name: Single device name (fuzzy search)
         tag_key: Tag key for group (e.g., "process", "building")
@@ -80,6 +84,13 @@ async def get_peak_analysis(
     Returns:
         Dictionary with peaks, timestamps, and optional breakdown
     """
+    # Resolve tenant first (if provided)
+    tenant_id = None
+    if tenant:
+        tenant_id, _, error = await resolve_tenant(tenant)
+        if error:
+            return {"error": error}
+
     # Determine mode: single device or group
     is_single_device = device_id is not None or device_name is not None
     is_group = (tag_key and tag_value) or asset_id is not None
@@ -112,10 +123,10 @@ async def get_peak_analysis(
     selected_bucket = bucket or _select_bucket(time_range)
     bucket_interval = BUCKET_INTERVALS[selected_bucket]
 
-    # Resolve devices
+    # Resolve devices with tenant filter
     if is_single_device:
         resolved_dev_id, dev_info, error = await _resolve_device_id(
-            device_id, device_name
+            device_id, device_name, tenant_id
         )
         if error:
             return {"error": error}
@@ -124,13 +135,13 @@ async def get_peak_analysis(
         group_label = dev_info.get("display_name", f"Device {resolved_dev_id}")
         group_type = "device"
     else:
-        # Resolve group devices
+        # Resolve group devices with tenant filter
         if tag_key and tag_value:
-            devices, error = await _resolve_tag_devices(tag_key, tag_value)
+            devices, error = await _resolve_tag_devices(tag_key, tag_value, tenant_id)
             group_label = f"{tag_key}={tag_value}"
             group_type = "tag"
         else:
-            devices, error = await _resolve_asset_devices(asset_id)
+            devices, error = await _resolve_asset_devices(asset_id, tenant_id)
             asset = await db.fetch_one(
                 "SELECT asset_name FROM assets WHERE id = $1",
                 asset_id,
