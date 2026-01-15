@@ -127,7 +127,14 @@ async def get_wages_data(
     if period_result[0] is None:
         return {"error": period_result[1]}
 
-    query_start, query_end, period_str = period_result
+    query_start, query_end = period_result
+    # Build period string for display
+    if start_date and end_date:
+        period_str = f"{start_date} to {end_date}"
+    elif start_date:
+        period_str = f"{start_date} to now"
+    else:
+        period_str = period or "7d"
 
     # Determine data source and query
     is_energy_cost = quantity_id is None and quantity_search is None
