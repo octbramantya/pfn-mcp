@@ -11,11 +11,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useConversations } from '@/contexts/ConversationsContext';
-import { deleteConversation, updateConversationTitle } from '@/lib/api';
-import type { Conversation } from '@/lib/types';
+import { deleteConversation, getConversation, updateConversationTitle } from '@/lib/api';
+import type { Conversation, ConversationDetail } from '@/lib/types';
 
 export function ConversationList() {
   const { conversations, isLoading, refresh, activeConversationId, setActiveConversationId } = useConversations();
@@ -62,6 +68,71 @@ export function ConversationList() {
     setNewTitle(conversation.title || '');
   };
 
+  // Export helpers
+  const stripThinkingBlocks = (content: string): string => {
+    // Remove <think>...</think> blocks (including multiline)
+    return content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+  };
+
+  const formatConversationToTxt = (conv: ConversationDetail, debugMode: boolean = false): string => {
+    const lines: string[] = [];
+
+    // Header
+    lines.push(`# ${conv.title || 'Untitled Conversation'}`);
+    lines.push(`Model: ${conv.model}`);
+    lines.push(`Date: ${new Date(conv.created_at).toLocaleString()}`);
+    if (debugMode) {
+      lines.push('[DEBUG MODE - includes tool calls and thinking]');
+    }
+    lines.push('');
+    lines.push('---');
+    lines.push('');
+
+    // Messages
+    for (const msg of conv.messages) {
+      // Skip tool messages in normal mode
+      if (msg.role === 'tool' && !debugMode) continue;
+
+      const timestamp = new Date(msg.created_at).toLocaleString();
+
+      if (msg.role === 'tool') {
+        lines.push(`[TOOL: ${msg.tool_name}] ${timestamp}`);
+      } else {
+        lines.push(`[${msg.role.toUpperCase()}] ${timestamp}`);
+      }
+
+      // Strip thinking blocks in normal mode
+      const content = debugMode ? msg.content : stripThinkingBlocks(msg.content);
+      lines.push(content);
+      lines.push('');
+    }
+
+    return lines.join('\n');
+  };
+
+  const downloadTxt = (content: string, filename: string) => {
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename.replace(/[^a-z0-9]/gi, '_') + '.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExport = async (conversation: Conversation, debugMode: boolean = false) => {
+    try {
+      const detail = await getConversation(conversation.id);
+      const txt = formatConversationToTxt(detail, debugMode);
+      const suffix = debugMode ? '-debug' : '';
+      downloadTxt(txt, `${conversation.title || 'conversation'}${suffix}`);
+    } catch (error) {
+      console.error('Failed to export conversation:', error);
+    }
+  };
+
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -81,9 +152,9 @@ export function ConversationList() {
 
   if (isLoading) {
     return (
-      <div className="p-2 space-y-2">
+      <div className="p-2 space-y-1">
         {[...Array(5)].map((_, i) => (
-          <Skeleton key={i} className="h-12 w-full" />
+          <Skeleton key={i} className="h-12 w-full rounded-lg" />
         ))}
       </div>
     );
@@ -91,7 +162,7 @@ export function ConversationList() {
 
   if (conversations.length === 0) {
     return (
-      <div className="p-4 text-center text-sm text-muted-foreground">
+      <div className="p-4 text-center text-sm text-muted-foreground/70">
         No conversations yet
       </div>
     );
@@ -99,45 +170,59 @@ export function ConversationList() {
 
   return (
     <>
-      <div className="p-2 space-y-1">
+      <div className="p-2 space-y-0.5 overflow-hidden">
         {conversations.map((conversation) => (
           <div
             key={conversation.id}
-            className={`group flex items-center gap-2 p-2 rounded-md hover:bg-sidebar-accent cursor-pointer ${
-              activeConversationId === conversation.id ? 'bg-sidebar-accent' : ''
+            className={`group relative px-3 py-2 rounded-lg cursor-pointer transition-colors overflow-hidden ${
+              activeConversationId === conversation.id
+                ? 'bg-sidebar-accent'
+                : 'hover:bg-sidebar-accent/50'
             }`}
             onClick={() => setActiveConversationId(conversation.id)}
           >
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium truncate text-sidebar-foreground">
+            {/* Content - with right padding for menu */}
+            <div className="pr-8 overflow-hidden">
+              <div className="text-sm text-sidebar-foreground truncate">
                 {conversation.title || 'Untitled'}
               </div>
-              <div className="text-xs text-muted-foreground">
+              <div className="text-xs text-muted-foreground/70 mt-0.5">
                 {formatDate(conversation.updated_at)}
               </div>
             </div>
-            <div className="flex gap-1 opacity-0 group-hover:opacity-100">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-                onClick={(e) => openRenameDialog(conversation, e)}
-                title="Rename"
-              >
-                ✎
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setDeleteTarget(conversation);
-                }}
-                title="Delete"
-              >
-                ×
-              </Button>
+            {/* Three-dot menu - appears on hover */}
+            <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    className="p-1.5 text-muted-foreground hover:text-foreground rounded-md hover:bg-black/5"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
+                      <circle cx="12" cy="5" r="2"/>
+                      <circle cx="12" cy="12" r="2"/>
+                      <circle cx="12" cy="19" r="2"/>
+                    </svg>
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-40">
+                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); openRenameDialog(conversation, e); }}>
+                    Rename
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleExport(conversation, false); }}>
+                    Export as TXT
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleExport(conversation, true); }}>
+                    Export (Debug)
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onClick={(e) => { e.stopPropagation(); setDeleteTarget(conversation); }}
+                  >
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
         ))}

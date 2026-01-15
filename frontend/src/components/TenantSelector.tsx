@@ -43,12 +43,20 @@ export function TenantSelector() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" disabled={isLoading}>
-          {isLoading ? 'Switching...' : currentTenant}
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={isLoading}
+          className="h-8 text-muted-foreground hover:text-foreground gap-1.5"
+        >
+          <span className="text-xs">{isLoading ? 'Switching...' : currentTenant}</span>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3">
+            <path d="m6 9 6 6 6-6"/>
+          </svg>
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuLabel>Select Tenant</DropdownMenuLabel>
+      <DropdownMenuContent align="end" className="min-w-[140px]">
+        <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">Switch Tenant</DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem
           onClick={() => handleSelectTenant(null)}

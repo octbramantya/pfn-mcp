@@ -20,17 +20,16 @@ export default function ChatPage() {
   const [streamingMessage, setStreamingMessage] = useState<StreamingMessage | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isNewChat, setIsNewChat] = useState(false); // Track if user wants new chat
   const abortControllerRef = useRef<AbortController | null>(null);
   const streamingContentRef = useRef<string>('');
 
-  const { conversations, refresh, activeConversationId, setActiveConversationId } = useConversations();
+  const { conversations, refresh, activeConversationId, setActiveConversationId, isNewChat, clearNewChatFlag } = useConversations();
 
   // Load conversation when active conversation changes
   useEffect(() => {
     const loadConversation = async () => {
       if (activeConversationId) {
-        setIsNewChat(false); // User selected a conversation, reset new chat flag
+        clearNewChatFlag(); // User selected a conversation, reset new chat flag
         try {
           const detail = await getConversation(activeConversationId);
           setConversationId(detail.id);
@@ -39,11 +38,16 @@ export default function ChatPage() {
         } catch (error) {
           console.error('Failed to load conversation:', error);
         }
+      } else if (isNewChat) {
+        // New chat requested - clear messages
+        setConversationId(null);
+        setMessages([]);
+        setStreamingMessage(null);
       }
     };
 
     loadConversation();
-  }, [activeConversationId]);
+  }, [activeConversationId, isNewChat, clearNewChatFlag]);
 
   // Load most recent conversation on mount (but not if user started new chat)
   useEffect(() => {
@@ -91,7 +95,7 @@ export default function ChatPage() {
             newConversationId = id;
             setConversationId(id);
             setActiveConversationId(id);
-            setIsNewChat(false); // Conversation created, reset flag
+            clearNewChatFlag(); // Conversation created, reset flag
             // Refresh conversation list to show new conversation
             await refresh();
           });
@@ -201,14 +205,6 @@ export default function ChatPage() {
     }
   }, []);
 
-  const handleNewConversation = useCallback(() => {
-    setConversationId(null);
-    setMessages([]);
-    setStreamingMessage(null);
-    setActiveConversationId(null);
-    setIsNewChat(true); // Prevent auto-loading previous conversation
-  }, [setActiveConversationId]);
-
   return (
     <div className="flex h-full flex-col">
       {/* Messages Area */}
@@ -221,11 +217,10 @@ export default function ChatPage() {
       </div>
 
       {/* Input Area */}
-      <div className="border-t p-4">
+      <div className="border-t p-6">
         <ChatInput
           onSend={handleSendMessage}
           onStop={handleStopGeneration}
-          onNewChat={handleNewConversation}
           isLoading={isLoading}
           disabled={false}
         />

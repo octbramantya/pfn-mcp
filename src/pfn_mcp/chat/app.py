@@ -286,18 +286,26 @@ async def switch_tenant(
 
 async def _generate_title(first_message: str) -> str:
     """Generate a title for the conversation from the first message."""
-    # Simple title generation - first 50 chars or first sentence
+    max_len = 35  # Shorter for better sidebar display
     title = first_message.strip()
-    if len(title) > 50:
-        # Try to find a natural break point
-        for sep in [".", "?", "!", "\n"]:
-            idx = title.find(sep)
-            if 0 < idx <= 50:
-                title = title[:idx]
-                break
-        else:
-            title = title[:47] + "..."
-    return title
+
+    # If short enough, return as-is
+    if len(title) <= max_len:
+        return title
+
+    # Try to find a natural sentence break
+    for sep in [".", "?", "!", "\n"]:
+        idx = title.find(sep)
+        if 0 < idx <= max_len:
+            return title[:idx + 1]  # Include the punctuation
+
+    # No sentence break - truncate at word boundary
+    truncated = title[:max_len]
+    last_space = truncated.rfind(" ")
+    if last_space > max_len // 2:  # Only use word boundary if reasonable
+        truncated = truncated[:last_space]
+
+    return truncated + "..."
 
 
 @app.post("/api/chat")

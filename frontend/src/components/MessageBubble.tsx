@@ -4,7 +4,6 @@ import { useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 import type { Message, ToolCallDisplay } from '@/lib/types';
 
 interface MessageBubbleProps {
@@ -53,19 +52,19 @@ export function MessageBubble({
 
   return (
     <div className={`flex gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
-      {/* Avatar */}
+      {/* Avatar - smaller, more subtle */}
       <div
-        className={`w-8 h-8 rounded-full flex items-center justify-center text-sm shrink-0 ${
+        className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium shrink-0 mt-1 ${
           isUser
             ? 'bg-secondary text-secondary-foreground'
-            : 'bg-primary text-primary-foreground'
+            : 'bg-primary/10 text-primary'
         }`}
       >
-        {isUser ? 'U' : 'AI'}
+        {isUser ? 'U' : 'A'}
       </div>
 
       {/* Content */}
-      <div className={`flex flex-col gap-2 max-w-[80%] ${isUser ? 'items-end' : ''}`}>
+      <div className={`flex flex-col gap-3 max-w-[85%] ${isUser ? 'items-end' : 'items-start'}`}>
         {/* Thinking indicator */}
         {isThinking && (
           <div className="flex items-center gap-2 text-muted-foreground text-sm">
@@ -74,22 +73,17 @@ export function MessageBubble({
           </div>
         )}
 
-        {/* Message card - only show if there's content or not thinking */}
+        {/* Message content - only show if there's content or not thinking */}
         {(displayContent || !isThinking) && (
-          <Card
-            className={`p-3 ${
-              isUser
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-card text-card-foreground'
-            }`}
-          >
-            {/* Message content */}
+          <>
             {isUser ? (
-              <div className="whitespace-pre-wrap break-words">
+              /* User message - subtle pill bubble */
+              <div className="bg-secondary text-secondary-foreground px-4 py-3 rounded-2xl rounded-tr-md whitespace-pre-wrap break-words leading-relaxed">
                 {displayContent || message.content}
               </div>
             ) : (
-              <div className="prose prose-sm dark:prose-invert max-w-none break-words">
+              /* AI message - no bubble, flows naturally */
+              <div className="prose dark:prose-invert max-w-none break-words">
                 <ReactMarkdown>
                   {displayContent || (isStreaming ? '' : message.content)}
                 </ReactMarkdown>
@@ -98,7 +92,7 @@ export function MessageBubble({
                 )}
               </div>
             )}
-          </Card>
+          </>
         )}
 
         {/* Tool calls */}
@@ -118,13 +112,13 @@ function ToolCallCard({ tool }: { tool: ToolCallDisplay }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <Card className="p-2 bg-muted/50 text-sm">
+    <div className="border border-border/50 rounded-lg p-3 text-sm bg-muted/30">
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 text-muted-foreground">
           {tool.isLoading ? (
             <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
           ) : (
-            <span className="text-green-600">✓</span>
+            <span className="text-primary">✓</span>
           )}
           <span className="font-mono text-xs">{tool.name}</span>
         </div>
@@ -132,7 +126,7 @@ function ToolCallCard({ tool }: { tool: ToolCallDisplay }) {
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 px-2 text-xs"
+            className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
             onClick={() => setExpanded(!expanded)}
           >
             {expanded ? 'Hide' : 'Show'}
@@ -140,10 +134,10 @@ function ToolCallCard({ tool }: { tool: ToolCallDisplay }) {
         )}
       </div>
       {expanded && tool.result && (
-        <pre className="mt-2 p-2 bg-background rounded text-xs overflow-x-auto max-h-40 overflow-y-auto">
+        <pre className="mt-3 p-3 bg-muted rounded-md text-xs overflow-x-auto max-h-40 overflow-y-auto">
           {tool.result}
         </pre>
       )}
-    </Card>
+    </div>
   );
 }

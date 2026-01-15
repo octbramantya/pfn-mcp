@@ -28,12 +28,12 @@ export function ChatMessages({
 
   if (messages.length === 0 && !streamingMessage) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <div className="text-center">
-          <h2 className="text-xl font-semibold text-foreground mb-2">
+      <div className="flex h-full items-center justify-center px-6">
+        <div className="text-center max-w-lg">
+          <h2 className="text-2xl font-medium text-foreground mb-3">
             Welcome to PFN Chat
           </h2>
-          <p className="text-muted-foreground max-w-md">
+          <p className="text-muted-foreground text-base leading-relaxed">
             Ask me about energy consumption, electricity costs, power demand, or
             any other data from your power meters.
           </p>
@@ -44,7 +44,7 @@ export function ChatMessages({
 
   return (
     <ScrollArea className="h-full" ref={scrollRef}>
-      <div className="flex flex-col gap-4 p-4 max-w-4xl mx-auto">
+      <div className="flex flex-col gap-6 p-6 max-w-3xl mx-auto">
         {messages.map((message) => (
           <MessageBubble key={message.id} message={message} />
         ))}
@@ -67,10 +67,10 @@ export function ChatMessages({
         {/* Loading indicator when waiting for first chunk */}
         {isLoading && !streamingMessage?.content && (
           <div className="flex gap-3">
-            <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-sm">
-              AI
+            <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-medium mt-1">
+              A
             </div>
-            <div className="flex-1 space-y-2">
+            <div className="flex-1 space-y-2 pt-1">
               <Skeleton className="h-4 w-3/4" />
               <Skeleton className="h-4 w-1/2" />
             </div>

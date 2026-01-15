@@ -18,6 +18,9 @@ interface ConversationsContextType {
   refresh: () => Promise<void>;
   activeConversationId: string | null;
   setActiveConversationId: (id: string | null) => void;
+  startNewChat: () => void;
+  isNewChat: boolean;
+  clearNewChatFlag: () => void;
 }
 
 const ConversationsContext = createContext<ConversationsContextType | undefined>(undefined);
@@ -26,6 +29,7 @@ export function ConversationsProvider({ children }: { children: ReactNode }) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [isNewChat, setIsNewChat] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -36,6 +40,15 @@ export function ConversationsProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false);
     }
+  }, []);
+
+  const startNewChat = useCallback(() => {
+    setActiveConversationId(null);
+    setIsNewChat(true);
+  }, []);
+
+  const clearNewChatFlag = useCallback(() => {
+    setIsNewChat(false);
   }, []);
 
   // Load conversations on mount
@@ -51,6 +64,9 @@ export function ConversationsProvider({ children }: { children: ReactNode }) {
         refresh,
         activeConversationId,
         setActiveConversationId,
+        startNewChat,
+        isNewChat,
+        clearNewChatFlag,
       }}
     >
       {children}
