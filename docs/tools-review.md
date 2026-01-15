@@ -115,17 +115,17 @@ async def resolve_device(
 The `check_data_freshness` query can timeout on large datasets. This is a
 pre-existing performance issue unrelated to tenant filtering.
 
-## Future Work
+## Completed Refactoring
 
-### Quantity Alias Consolidation
+### Quantity Alias Consolidation (2025-01)
 
-The quantity alias expansion pattern is duplicated in 4 locations:
-- `telemetry.py`
-- `discovery.py`
-- `device_quantities.py` (2 locations)
+Extracted `expand_quantity_aliases()` helper to `quantities.py` and updated 6 locations:
+- `quantities.py` (list_quantities)
+- `telemetry.py` (_resolve_quantity_id)
+- `discovery.py` (get_device_data_range, find_devices_by_quantity)
+- `device_quantities.py` (list_device_quantities, compare_device_quantities)
 
-Consider extracting to `quantities.py`:
 ```python
 def expand_quantity_aliases(search: str) -> list[str]:
-    """Expand semantic search term to quantity patterns."""
+    """Expand semantic search term to quantity code patterns."""
 ```
