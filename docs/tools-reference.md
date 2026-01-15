@@ -1,9 +1,9 @@
 # PFN MCP Tools Reference
 
-<!-- Auto-generated from tools.yaml on 2026-01-15 13:02 -->
+<!-- Auto-generated from tools.yaml on 2026-01-15 15:45 -->
 <!-- DO NOT EDIT MANUALLY - run: python scripts/generate_tools_reference.py -->
 
-Total tools: **23**
+Total tools: **24**
 
 ---
 
@@ -25,15 +25,15 @@ Total tools: **23**
 | `get_device_telemetry` | Telemetry | Yes | No | Fetch time-series telemetry data for a device |
 | `get_quantity_stats` | Telemetry | Yes | Yes | Pre-flight validation before telemetry queries |
 | `get_energy_consumption` | Telemetry | Yes | No | Get energy consumption for a device |
-| `get_electricity_cost` | Electricity Cost | Yes | No | Get electricity consumption and cost for a devi... |
+| `get_electricity_cost` | Electricity Cost | Yes | No | ⚠️ DEPRECATED: Use get_wages_data instead |
 | `get_electricity_cost_ranking` | Electricity Cost | Yes | Yes | Rank devices by electricity cost or consumption... |
 | `compare_electricity_periods` | Electricity Cost | Yes | Yes | Compare electricity costs between two time periods |
 | `list_tags` | Group Telemetry | Yes | Yes | List available device tags for grouping |
 | `list_tag_values` | Group Telemetry | Yes | Yes | List all values for a specific tag key with dev... |
 | `search_tags` | Group Telemetry | No | Yes | Search for device tags by value or key |
-| `get_group_telemetry` | Group Telemetry | Yes | Yes | Get aggregated telemetry for a group of devices |
+| `get_group_telemetry` | Group Telemetry | Yes | Yes | ⚠️ DEPRECATED: Use get_wages_data with tag_key/... |
 | `compare_groups` | Group Telemetry | Yes | Yes | Compare electricity consumption across multiple... |
-| `get_peak_analysis` | Peak Analysis | Yes | Yes | Find peak values with timestamps for a device o... |
+| `get_peak_analysis` | Peak Analysis | Yes | Yes | ⚠️ DEPRECATED: Use get_wages_data with agg_meth... |
 
 
 ---
@@ -52,7 +52,7 @@ These 5 tools are loaded immediately for every request:
 - `get_electricity_cost`
 
 ### Deferred (Searchable)
-These 18 tools are loaded on-demand via search:
+These 19 tools are loaded on-demand via search:
 
 - `list_tenants`
 - `list_quantities`
@@ -72,6 +72,7 @@ These 18 tools are loaded on-demand via search:
 - `get_group_telemetry`
 - `compare_groups`
 - `get_peak_analysis`
+- `get_wages_data`
 
 ### MCP Integration Example
 
@@ -360,7 +361,7 @@ Get energy consumption for a device. Returns actual consumption (not cumulative 
 
 **Tenant-aware:** Yes | **Defer loading:** No (always loaded)
 
-Get electricity consumption and cost for a device or tenant. Queries pre-aggregated daily cost data with time-of-use (TOU) rates.
+⚠️ DEPRECATED: Use get_wages_data instead. Get electricity consumption and cost for a device or tenant. Queries pre-aggregated daily cost data with time-of-use (TOU) rates.
 **Indonesian Electricity Rate Codes:** - WBP (Waktu Beban Puncak) = Peak Period (~Rp 1,550/kWh) - LWBP (Luar WBP) = Off-Peak Period (~Rp 1,035/kWh)
   - LWBP1: Morning off-peak
   - LWBP2: Night off-peak
@@ -476,7 +477,7 @@ Search for device tags by value or key. Finds tags where tag_value or tag_key ma
 
 **Tenant-aware:** Yes | **Defer loading:** Yes
 
-Get aggregated telemetry for a group of devices. Default: electricity consumption/cost. With quantity: any WAGE metric (power, water flow, air pressure, etc.). Group by: single tag (tag_key + tag_value), multiple tags with AND logic (tags array), or asset hierarchy (asset_id). Supports breakdown by device or daily. Auto-filters to devices in the user's tenant.
+⚠️ DEPRECATED: Use get_wages_data with tag_key/tag_value instead. Get aggregated telemetry for a group of devices. Default: electricity consumption/cost. With quantity: any WAGES metric (power, water flow, air pressure, etc.). Group by: single tag (tag_key + tag_value), multiple tags with AND logic (tags array), or asset hierarchy (asset_id). Supports breakdown by device or daily. Auto-filters to devices in the user's tenant.
 
 **Parameters:**
 
@@ -523,7 +524,7 @@ Compare electricity consumption across multiple groups. Each group can be define
 
 **Tenant-aware:** Yes | **Defer loading:** Yes
 
-Find peak values with timestamps for a device or group. Returns top N peaks per bucket (hour/day/week). Shows which device caused each peak. Supports any WAGE quantity: power, flow, pressure, etc. Auto-filters to devices in the user's tenant.
+⚠️ DEPRECATED: Use get_wages_data with agg_method="max" instead. Find peak values with timestamps for a device or group. Returns top N peaks per bucket (hour/day/week). Shows which device caused each peak. Supports any WAGES quantity: power, flow, pressure, etc. Auto-filters to devices in the user's tenant.
 
 **Parameters:**
 
