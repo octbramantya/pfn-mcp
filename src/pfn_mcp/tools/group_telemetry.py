@@ -6,6 +6,7 @@ from typing import Literal
 
 from pfn_mcp import db
 from pfn_mcp.tools.electricity_cost import parse_period
+from pfn_mcp.tools.resolve import resolve_tenant
 from pfn_mcp.tools.telemetry import BUCKET_MINUTES, _resolve_quantity_id
 
 logger = logging.getLogger(__name__)
@@ -214,6 +215,7 @@ async def _query_avg_value_timeseries(
 
 
 async def list_tags(
+    tenant: str | None = None,
     tag_key: str | None = None,
     tag_category: str | None = None,
 ) -> dict:
@@ -221,23 +223,37 @@ async def list_tags(
     List available device tags for grouping.
 
     Args:
+        tenant: Tenant name or code to filter tags by devices (optional)
         tag_key: Filter by specific tag key
         tag_category: Filter by tag category
 
     Returns:
         Dictionary with tags grouped by category
     """
-    conditions = ["is_active = true"]
+    # Resolve tenant first (if provided)
+    tenant_id = None
+    if tenant:
+        tenant_id, _, error = await resolve_tenant(tenant)
+        if error:
+            return {"error": error}
+
+    conditions = ["dt.is_active = true"]
     params = []
     param_idx = 1
 
+    # Filter by tenant (join with devices table)
+    if tenant_id is not None:
+        conditions.append(f"d.tenant_id = ${param_idx}")
+        params.append(tenant_id)
+        param_idx += 1
+
     if tag_key:
-        conditions.append(f"tag_key ILIKE ${param_idx}")
+        conditions.append(f"dt.tag_key ILIKE ${param_idx}")
         params.append(f"%{tag_key}%")
         param_idx += 1
 
     if tag_category:
-        conditions.append(f"tag_category ILIKE ${param_idx}")
+        conditions.append(f"dt.tag_category ILIKE ${param_idx}")
         params.append(f"%{tag_category}%")
         param_idx += 1
 
@@ -245,14 +261,15 @@ async def list_tags(
 
     query = f"""
         SELECT
-            tag_category,
-            tag_key,
-            tag_value,
-            COUNT(DISTINCT device_id) as device_count
-        FROM device_tags
+            dt.tag_category,
+            dt.tag_key,
+            dt.tag_value,
+            COUNT(DISTINCT dt.device_id) as device_count
+        FROM device_tags dt
+        JOIN devices d ON dt.device_id = d.id AND d.is_active = true
         WHERE {where_clause}
-        GROUP BY tag_category, tag_key, tag_value
-        ORDER BY tag_category NULLS LAST, tag_key, device_count DESC
+        GROUP BY dt.tag_category, dt.tag_key, dt.tag_value
+        ORDER BY dt.tag_category NULLS LAST, dt.tag_key, device_count DESC
     """
 
     rows = await db.fetch_all(query, *params)
@@ -299,32 +316,61 @@ def format_list_tags_response(result: dict) -> str:
 
 
 async def list_tag_values(
-    tag_key: str,
+    tenant: str | None = None,
+    tag_key: str = "",
 ) -> dict:
     """
     List all values for a specific tag key with device counts.
 
     Args:
+        tenant: Tenant name or code to filter tags by devices (optional)
         tag_key: The tag key to list values for
 
     Returns:
         Dictionary with tag values and device counts
     """
-    query = """
-        SELECT
-            tag_value,
-            tag_category,
-            COUNT(DISTINCT device_id) as device_count,
-            array_agg(DISTINCT d.display_name ORDER BY d.display_name) as devices
-        FROM device_tags dt
-        JOIN devices d ON dt.device_id = d.id
-        WHERE dt.tag_key ILIKE $1
-          AND dt.is_active = true
-        GROUP BY dt.tag_value, dt.tag_category
-        ORDER BY device_count DESC
-    """
+    if not tag_key:
+        return {"error": "tag_key is required"}
 
-    rows = await db.fetch_all(query, tag_key)
+    # Resolve tenant first (if provided)
+    tenant_id = None
+    if tenant:
+        tenant_id, _, error = await resolve_tenant(tenant)
+        if error:
+            return {"error": error}
+
+    # Build query with optional tenant filter
+    if tenant_id is not None:
+        query = """
+            SELECT
+                dt.tag_value,
+                dt.tag_category,
+                COUNT(DISTINCT dt.device_id) as device_count,
+                array_agg(DISTINCT d.display_name ORDER BY d.display_name) as devices
+            FROM device_tags dt
+            JOIN devices d ON dt.device_id = d.id AND d.is_active = true
+            WHERE dt.tag_key ILIKE $1
+              AND dt.is_active = true
+              AND d.tenant_id = $2
+            GROUP BY dt.tag_value, dt.tag_category
+            ORDER BY device_count DESC
+        """
+        rows = await db.fetch_all(query, tag_key, tenant_id)
+    else:
+        query = """
+            SELECT
+                dt.tag_value,
+                dt.tag_category,
+                COUNT(DISTINCT dt.device_id) as device_count,
+                array_agg(DISTINCT d.display_name ORDER BY d.display_name) as devices
+            FROM device_tags dt
+            JOIN devices d ON dt.device_id = d.id AND d.is_active = true
+            WHERE dt.tag_key ILIKE $1
+              AND dt.is_active = true
+            GROUP BY dt.tag_value, dt.tag_category
+            ORDER BY device_count DESC
+        """
+        rows = await db.fetch_all(query, tag_key)
 
     if not rows:
         return {"error": f"No tags found with key: {tag_key}"}
@@ -519,20 +565,36 @@ GroupByType = Literal["tag", "asset"]
 
 
 async def _resolve_tag_devices(
-    tag_key: str, tag_value: str
+    tag_key: str,
+    tag_value: str,
+    tenant_id: int | None = None,
 ) -> tuple[list[dict], str | None]:
-    """Get device IDs and names for a tag key-value pair."""
-    query = """
-        SELECT DISTINCT dt.device_id, d.display_name
-        FROM device_tags dt
-        JOIN devices d ON dt.device_id = d.id
-        WHERE dt.tag_key ILIKE $1
-          AND dt.tag_value ILIKE $2
-          AND dt.is_active = true
-          AND d.is_active = true
-        ORDER BY d.display_name
-    """
-    rows = await db.fetch_all(query, tag_key, tag_value)
+    """Get device IDs and names for a tag key-value pair with optional tenant filter."""
+    if tenant_id is not None:
+        query = """
+            SELECT DISTINCT dt.device_id, d.display_name
+            FROM device_tags dt
+            JOIN devices d ON dt.device_id = d.id
+            WHERE dt.tag_key ILIKE $1
+              AND dt.tag_value ILIKE $2
+              AND dt.is_active = true
+              AND d.is_active = true
+              AND d.tenant_id = $3
+            ORDER BY d.display_name
+        """
+        rows = await db.fetch_all(query, tag_key, tag_value, tenant_id)
+    else:
+        query = """
+            SELECT DISTINCT dt.device_id, d.display_name
+            FROM device_tags dt
+            JOIN devices d ON dt.device_id = d.id
+            WHERE dt.tag_key ILIKE $1
+              AND dt.tag_value ILIKE $2
+              AND dt.is_active = true
+              AND d.is_active = true
+            ORDER BY d.display_name
+        """
+        rows = await db.fetch_all(query, tag_key, tag_value)
     if not rows:
         return [], f"No devices found with tag {tag_key}={tag_value}"
     return [{"id": row["device_id"], "name": row["display_name"]} for row in rows], None
@@ -540,12 +602,14 @@ async def _resolve_tag_devices(
 
 async def _resolve_multi_tag_devices(
     tags: list[dict],
+    tenant_id: int | None = None,
 ) -> tuple[list[dict], str | None]:
     """
     Get device IDs and names for devices matching ALL specified tags (AND logic).
 
     Args:
         tags: List of {"key": "...", "value": "..."} dicts
+        tenant_id: Optional tenant ID to filter devices
 
     Returns:
         Tuple of (devices list, error message or None)
@@ -564,6 +628,12 @@ async def _resolve_multi_tag_devices(
     conditions = ["d.is_active = true"]
     params = []
     param_idx = 1
+
+    # Add tenant filter if provided
+    if tenant_id is not None:
+        conditions.append(f"d.tenant_id = ${param_idx}")
+        params.append(tenant_id)
+        param_idx += 1
 
     for i, tag in enumerate(tags):
         alias = f"dt{i}"
@@ -596,7 +666,10 @@ async def _resolve_multi_tag_devices(
     return [{"id": row["device_id"], "name": row["display_name"]} for row in rows], None
 
 
-async def _resolve_asset_devices(asset_id: int) -> tuple[list[dict], str | None]:
+async def _resolve_asset_devices(
+    asset_id: int,
+    tenant_id: int | None = None,
+) -> tuple[list[dict], str | None]:
     """Get device IDs and names for an asset hierarchy using database function."""
     # First check if the asset exists
     asset = await db.fetch_one(
@@ -607,21 +680,38 @@ async def _resolve_asset_devices(asset_id: int) -> tuple[list[dict], str | None]
         return [], f"Asset not found: {asset_id}"
 
     # Get all downstream devices using the database function
-    query = """
-        SELECT DISTINCT d.id as device_id, d.display_name
-        FROM get_all_downstream_assets($1, 'ELECTRICITY') da
-        JOIN devices d ON d.asset_id = da.asset_id
-        WHERE d.is_active = true
-    """
-    rows = await db.fetch_all(query, asset_id)
+    if tenant_id is not None:
+        query = """
+            SELECT DISTINCT d.id as device_id, d.display_name
+            FROM get_all_downstream_assets($1, 'ELECTRICITY') da
+            JOIN devices d ON d.asset_id = da.asset_id
+            WHERE d.is_active = true AND d.tenant_id = $2
+        """
+        rows = await db.fetch_all(query, asset_id, tenant_id)
+    else:
+        query = """
+            SELECT DISTINCT d.id as device_id, d.display_name
+            FROM get_all_downstream_assets($1, 'ELECTRICITY') da
+            JOIN devices d ON d.asset_id = da.asset_id
+            WHERE d.is_active = true
+        """
+        rows = await db.fetch_all(query, asset_id)
 
     # Also include devices directly attached to this asset
-    direct_query = """
-        SELECT id as device_id, display_name
-        FROM devices
-        WHERE asset_id = $1 AND is_active = true
-    """
-    direct_rows = await db.fetch_all(direct_query, asset_id)
+    if tenant_id is not None:
+        direct_query = """
+            SELECT id as device_id, display_name
+            FROM devices
+            WHERE asset_id = $1 AND is_active = true AND tenant_id = $2
+        """
+        direct_rows = await db.fetch_all(direct_query, asset_id, tenant_id)
+    else:
+        direct_query = """
+            SELECT id as device_id, display_name
+            FROM devices
+            WHERE asset_id = $1 AND is_active = true
+        """
+        direct_rows = await db.fetch_all(direct_query, asset_id)
 
     # Combine and deduplicate by device_id
     device_map = {}
@@ -643,6 +733,7 @@ async def _resolve_asset_devices(asset_id: int) -> tuple[list[dict], str | None]
 
 
 async def get_group_telemetry(
+    tenant: str | None = None,
     tag_key: str | None = None,
     tag_value: str | None = None,
     tags: list[dict] | None = None,
@@ -661,8 +752,10 @@ async def get_group_telemetry(
     Group by tag (tag_key + tag_value), multiple tags (AND logic), or asset hierarchy.
     Default: electricity consumption/cost from daily_energy_cost_summary.
     With quantity specified: any WAGE metric from telemetry_15min_agg.
+    Auto-filters to devices in the user's tenant.
 
     Args:
+        tenant: Tenant name or code to filter devices (optional)
         tag_key: Tag key for single-tag grouping (e.g., "process", "building")
         tag_value: Tag value to match (e.g., "Waterjet", "Factory A")
         tags: List of tags for multi-tag AND query. Each: {"key": "...", "value": "..."}
@@ -683,19 +776,26 @@ async def get_group_telemetry(
         - timeseries: Time-aligned rows per device [{time, device_1, device_2, ...}]
         - per_device: Per-device aggregation without time-series
     """
+    # Resolve tenant first (if provided)
+    tenant_id = None
+    if tenant:
+        tenant_id, _, error = await resolve_tenant(tenant)
+        if error:
+            return {"error": error}
+
     # Validate grouping parameters
     if tags and len(tags) > 0:
         # Multi-tag AND query
-        devices, error = await _resolve_multi_tag_devices(tags)
+        devices, error = await _resolve_multi_tag_devices(tags, tenant_id)
         group_type = "multi_tag"
         group_label = " AND ".join(f"{t['key']}={t['value']}" for t in tags)
     elif tag_key and tag_value:
         # Single tag query (backward compatible)
-        devices, error = await _resolve_tag_devices(tag_key, tag_value)
+        devices, error = await _resolve_tag_devices(tag_key, tag_value, tenant_id)
         group_type = "tag"
         group_label = f"{tag_key}={tag_value}"
     elif asset_id:
-        devices, error = await _resolve_asset_devices(asset_id)
+        devices, error = await _resolve_asset_devices(asset_id, tenant_id)
         group_type = "asset"
         # Get asset name for label
         asset = await db.fetch_one(
@@ -1611,15 +1711,18 @@ def format_group_telemetry_response(result: dict) -> str:
 
 
 async def compare_groups(
-    groups: list[dict],
+    tenant: str | None = None,
+    groups: list[dict] | None = None,
     period: str | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
 ) -> dict:
     """
     Compare electricity consumption across multiple groups.
+    Auto-filters to devices in the user's tenant.
 
     Args:
+        tenant: Tenant name or code to filter devices (optional)
         groups: List of group definitions, each with either:
             - {"tag_key": "...", "tag_value": "..."} for tag-based groups
             - {"asset_id": 123} for asset-based groups
@@ -1632,6 +1735,13 @@ async def compare_groups(
     """
     if not groups or len(groups) < 2:
         return {"error": "At least 2 groups required for comparison"}
+
+    # Resolve tenant first (if provided)
+    tenant_id = None
+    if tenant:
+        tenant_id, _, error = await resolve_tenant(tenant)
+        if error:
+            return {"error": error}
 
     # Parse period
     result = parse_period(period, start_date, end_date)
@@ -1649,12 +1759,12 @@ async def compare_groups(
         tag_value = group_def.get("tag_value")
         asset_id = group_def.get("asset_id")
 
-        # Resolve devices
+        # Resolve devices with tenant filter
         if tag_key and tag_value:
-            devices, error = await _resolve_tag_devices(tag_key, tag_value)
+            devices, error = await _resolve_tag_devices(tag_key, tag_value, tenant_id)
             group_label = f"{tag_key}={tag_value}"
         elif asset_id:
-            devices, error = await _resolve_asset_devices(asset_id)
+            devices, error = await _resolve_asset_devices(asset_id, tenant_id)
             asset = await db.fetch_one(
                 "SELECT asset_name FROM assets WHERE id = $1",
                 asset_id,

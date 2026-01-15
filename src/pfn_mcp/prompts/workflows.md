@@ -1,0 +1,100 @@
+# PFN Energy Intelligence - Workflow Shortcuts
+
+Slash commands are pre-defined tool chains that skip exhaustive tool search.
+
+## /daily-digest
+
+**Trigger:** "morning report", "how was yesterday", "daily overview"
+
+**Execute:**
+```
+get_electricity_cost(tenant="[TENANT]", period="7d", group_by="daily")
+```
+
+**Present:**
+1. Yesterday's total consumption (kWh) and cost (IDR)
+2. Comparison vs day-before (% change)
+3. Comparison vs 7-day average (% change)
+4. Anomalies (any day >15% deviation)
+
+Format as brief executive summary (4-6 lines).
+
+---
+
+## /dept-breakdown [group_by]
+
+**Trigger:** "breakdown by department", "consumption by process"
+
+**Default:** group_by = "equipment_type"
+**Options:** "equipment_type", "process", "building"
+
+**Execute:**
+```
+get_group_telemetry(tag_key="[group_by]", period="yesterday", breakdown="device")
+```
+
+**Present:** Ranked table with consumption and % of total.
+
+---
+
+## /peak-report
+
+**Trigger:** "peak current", "peak power", "when was max demand"
+
+**Execute:**
+```
+get_peak_analysis(quantity_search="power", period="24h", top_n=5)
+```
+
+**Present:** Peak times, values, and devices responsible.
+
+---
+
+## /weekly-summary
+
+**Trigger:** "weekly report", "last week summary"
+
+**Execute:**
+```
+get_electricity_cost(tenant="[TENANT]", period="7d")
+get_electricity_cost_ranking(tenant="[TENANT]", period="7d", limit=5)
+```
+
+**Present:**
+- Total consumption and cost
+- Top 5 cost drivers
+- Week-over-week trend
+
+---
+
+## /device-status [device_name]
+
+**Trigger:** "is [device] online", "check [device]"
+
+**Execute:**
+```
+check_data_freshness(device_name="[device]")
+```
+
+**Present:** Online/offline/stale status with last data timestamp.
+
+---
+
+## /compare [A] vs [B]
+
+**Trigger:** "compare X and Y", "X versus Y consumption"
+
+**Execute:** `compare_groups()` or `compare_electricity_periods()` depending on context.
+
+---
+
+## /anomalies
+
+**Trigger:** "any issues", "unusual consumption", "problems today"
+
+**Execute:**
+```
+get_electricity_cost(period="7d", group_by="daily")
+```
+
+**Analyze:** Identify deviations >15% from average.
