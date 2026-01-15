@@ -64,6 +64,14 @@ ON CONFLICT (tenant_id, name) DO UPDATE SET
     updated_at = NOW();
 
 -- ============================================================================
+-- PERMISSIONS
+-- ============================================================================
+
+-- Grant read access to pfn_mcp_reader (used by MCP server)
+GRANT SELECT ON meter_aggregations TO pfn_mcp_reader;
+GRANT USAGE ON SEQUENCE meter_aggregations_id_seq TO pfn_mcp_reader;
+
+-- ============================================================================
 -- VERIFICATION QUERY (run after migration)
 -- ============================================================================
 -- SELECT t.tenant_name, ma.name, ma.aggregation_type, ma.formula, ma.description
