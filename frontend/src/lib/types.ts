@@ -41,6 +41,16 @@ export interface Conversation {
   message_count: number;
 }
 
+// Tool call from LLM (stored in assistant messages)
+export interface ToolCall {
+  id: string;
+  type: 'function';
+  function: {
+    name: string;
+    arguments: string; // JSON string of parameters
+  };
+}
+
 // Message in a conversation
 export interface Message {
   id: string;
@@ -48,6 +58,7 @@ export interface Message {
   content: string;
   tool_name?: string | null;
   tool_call_id?: string | null;
+  tool_calls?: ToolCall[] | null; // Tool calls made by assistant
   input_tokens?: number | null;
   output_tokens?: number | null;
   sequence: number;

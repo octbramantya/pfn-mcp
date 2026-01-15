@@ -74,6 +74,15 @@ export function ConversationList() {
     return content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
   };
 
+  const formatToolCallParams = (argsJson: string): string => {
+    try {
+      const args = JSON.parse(argsJson);
+      return JSON.stringify(args, null, 2);
+    } catch {
+      return argsJson;
+    }
+  };
+
   const formatConversationToTxt = (conv: ConversationDetail, debugMode: boolean = false): string => {
     const lines: string[] = [];
 
@@ -82,7 +91,7 @@ export function ConversationList() {
     lines.push(`Model: ${conv.model}`);
     lines.push(`Date: ${new Date(conv.created_at).toLocaleString()}`);
     if (debugMode) {
-      lines.push('[DEBUG MODE - includes tool calls and thinking]');
+      lines.push('[DEBUG MODE - includes tool calls, parameters, and thinking]');
     }
     lines.push('');
     lines.push('---');
@@ -103,7 +112,25 @@ export function ConversationList() {
 
       // Strip thinking blocks in normal mode
       const content = debugMode ? msg.content : stripThinkingBlocks(msg.content);
-      lines.push(content);
+      if (content) {
+        lines.push(content);
+      }
+
+      // In debug mode, show tool calls with parameters for assistant messages
+      if (debugMode && msg.role === 'assistant' && msg.tool_calls?.length) {
+        lines.push('');
+        lines.push('>>> Tool Calls:');
+        for (const tc of msg.tool_calls) {
+          lines.push(`  [${tc.function.name}]`);
+          lines.push('  Parameters:');
+          const formattedParams = formatToolCallParams(tc.function.arguments);
+          // Indent each line of the JSON
+          for (const line of formattedParams.split('\n')) {
+            lines.push(`    ${line}`);
+          }
+        }
+      }
+
       lines.push('');
     }
 
