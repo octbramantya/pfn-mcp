@@ -39,8 +39,12 @@ class ChatSettings(BaseSettings):
     # Anthropic API key
     anthropic_api_key: str = ""
 
-    # System prompt for Claude (optional)
-    system_prompt: str = "You are an energy monitoring assistant for PFN (PT Forisa Nusapersada). You help users query electricity consumption, power demand, costs, and other metrics from their power meters. Use the available tools to fetch data from the database. Be concise and helpful."
+    # System prompt for Claude (optional - if empty, uses prompts/*.md files)
+    system_prompt: str = ""
+
+    # Enable Anthropic prompt caching for token efficiency
+    # Caches static prompt portions, reduces cost by ~90% on cache hits
+    enable_prompt_cache: bool = True
 
     # Development mode - accepts mock JWT tokens from frontend
     dev_auth: bool = False

@@ -9,6 +9,7 @@ from typing import Any
 import anthropic
 
 from .config import chat_settings
+from .prompts import build_system_prompt
 from .tool_registry import get_tool_schemas_anthropic
 
 logger = logging.getLogger(__name__)
@@ -85,19 +86,34 @@ class LLMClient:
     Claude LLM client using direct Anthropic SDK.
 
     Provides reliable tool calling without LiteLLM abstraction layer issues.
+    Supports Anthropic prompt caching for token efficiency.
     """
 
-    def __init__(self, model: str | None = None):
+    def __init__(
+        self,
+        model: str | None = None,
+        tenant_name: str | None = None,
+        enable_prompt_cache: bool | None = None,
+    ):
         """
         Initialize LLM client.
 
         Args:
             model: Model identifier (e.g., 'claude-sonnet-4-20250514')
                    If None, uses default from settings.
+            tenant_name: Tenant context for system prompt
+            enable_prompt_cache: Whether to use Anthropic prompt caching.
+                   If None, uses setting from config.
         """
         self.model = model or chat_settings.llm_model
         self.client = anthropic.AsyncAnthropic(api_key=chat_settings.anthropic_api_key)
         self.tools = get_tool_schemas_anthropic()
+        self.tenant_name = tenant_name
+        self.enable_prompt_cache = (
+            enable_prompt_cache
+            if enable_prompt_cache is not None
+            else chat_settings.enable_prompt_cache
+        )
 
     async def chat(
         self,
@@ -129,9 +145,13 @@ class LLMClient:
             "temperature": temperature,
         }
 
-        # Add system prompt if configured
-        if chat_settings.system_prompt:
-            kwargs["system"] = chat_settings.system_prompt
+        # Add system prompt with optional caching
+        system_prompt = build_system_prompt(
+            tenant_name=self.tenant_name,
+            enable_cache=self.enable_prompt_cache,
+        )
+        if system_prompt:
+            kwargs["system"] = system_prompt
 
         # Add tools if enabled
         if use_tools and self.tools:
@@ -266,6 +286,7 @@ async def chat_completion(
     model: str | None = None,
     stream: bool = False,
     use_tools: bool = True,
+    tenant_name: str | None = None,
 ) -> ChatResponse | AsyncIterator[StreamChunk]:
     """
     Simple chat completion function.
@@ -275,11 +296,12 @@ async def chat_completion(
         model: Model to use (defaults to settings)
         stream: Whether to stream
         use_tools: Whether to enable tools
+        tenant_name: Tenant context for system prompt
 
     Returns:
         ChatResponse or streaming iterator
     """
-    client = LLMClient(model=model)
+    client = LLMClient(model=model, tenant_name=tenant_name)
     chat_messages = [
         ChatMessage(
             role=m["role"],

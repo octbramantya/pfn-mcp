@@ -416,8 +416,11 @@ async def chat(
                         )
                     )
 
-            # Initialize LLM client
-            client = LLMClient(model=chat_settings.llm_model)
+            # Initialize LLM client with tenant context for system prompt
+            client = LLMClient(
+                model=chat_settings.llm_model,
+                tenant_name=tenant_code,
+            )
 
             total_input_tokens = 0
             total_output_tokens = 0
