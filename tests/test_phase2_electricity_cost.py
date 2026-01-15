@@ -1,9 +1,5 @@
 """Phase 2 Electricity Cost Tests - Scenarios #25-34.
 
-DEPRECATED: These tests are for deprecated tools (get_electricity_cost, etc.)
-Use test_wages_data.py for the new unified get_wages_data tool.
-Run explicitly with: pytest tests/_deprecated_*.py -v
-
 Tests for electricity cost analysis tools.
 """
 

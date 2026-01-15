@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-PFN MCP Server - A Model Context Protocol server providing natural language access to the Valkyrie energy monitoring database (PostgreSQL + TimescaleDB). Enables querying energy consumption, power demand, and WAGES (Water, Air, Gas, Electricity, Steam) metrics without SQL.
+PFN MCP Server - A Model Context Protocol server providing natural language access to the Valkyrie energy monitoring database (PostgreSQL + TimescaleDB). Enables querying energy consumption, power demand, and WAGE (Water, Air, Gas, Electricity) metrics without SQL.
 
 ## Commands
 
@@ -54,9 +54,7 @@ src/pfn_mcp/
     ├── telemetry.py         # Phase 2 time-series tools (resolve_device, etc.)
     ├── electricity_cost.py  # Electricity cost tools (daily aggregates, breakdowns)
     ├── group_telemetry.py   # Group telemetry tools (by tag or asset hierarchy)
-    ├── peak_analysis.py     # Peak analysis tools (find peak values with timestamps)
-    ├── formula_parser.py    # Parse device formulas (94+11+27, 94-84, (A+B)-(C))
-    └── wages_data.py        # Unified WAGES tool (replaces cost/group/peak tools)
+    └── peak_analysis.py     # Peak analysis tools (find peak values with timestamps)
 ```
 
 **Key patterns:**
@@ -107,7 +105,7 @@ Period formats supported: `7d`, `30d`, `1M`, `2025-12`, `2025-12-01 to 2025-12-1
 |------|-------------|
 | `list_tags` | List available device tags for grouping (by process, building, area, etc.) |
 | `list_tag_values` | List all values for a tag key with device counts |
-| `get_group_telemetry` | Aggregated telemetry for a group - default: electricity; with quantity: any WAGES metric |
+| `get_group_telemetry` | Aggregated telemetry for a group - default: electricity; with quantity: any WAGE metric |
 | `compare_groups` | Compare consumption across multiple groups side-by-side |
 
 Grouping options:
@@ -118,7 +116,7 @@ Grouping options:
 
 | Tool | Description |
 |------|-------------|
-| `get_peak_analysis` | Find peak values with timestamps for device or group (any WAGES quantity) |
+| `get_peak_analysis` | Find peak values with timestamps for device or group (any WAGE quantity) |
 
 Features:
 - Supports single device or group (tag/asset)
@@ -127,35 +125,13 @@ Features:
 - Optional `device_daily` breakdown for per-device peaks
 - Aggregation: uses `telemetry_15min_agg` with adaptive bucketing
 
-## Available Tools (Phase 3 - Unified WAGES)
-
-| Tool | Description |
-|------|-------------|
-| `get_wages_data` | **Unified tool** for all WAGES telemetry - replaces overlapping cost/group/peak tools |
-
-**Scope options (use one):**
-- `device_id` / `device_name`: Single device
-- `tag_key` + `tag_value`: Tag-based group
-- `tags`: Multi-tag AND query
-- `asset_id`: Asset hierarchy
-- `aggregation`: Named aggregation from `meter_aggregations` (e.g., "facility", "yarn_division")
-- `formula`: Inline device formula (e.g., "94+11+27", "94-84")
-
-**Data sources:**
-- Energy/cost queries: Uses `daily_energy_cost_summary` (omit quantity params)
-- WAGES telemetry: Uses `telemetry_15min_agg` (set `quantity_id` or `quantity_search`)
-
-**Aggregation methods:** `sum` (default for energy), `avg` (default for power), `max` (peak), `min`
-
-**Breakdowns:** `none`, `device`, `daily`, `shift`, `rate`, `shift_rate`
-
 ## Database Context
 
 - **Tenants**: Multi-tenant system (tenants table with tenant_name, tenant_code)
 - **Devices**: Power meters with display_name, device_code, linked to tenant_id
   - `metadata` JSONB contains: `device_info` (manufacturer, model), `data_concentrator` (slave_id, ip_address, port), `location`, `communication`
   - Unique key for admins: `slave_id@ip_address` combination
-- **Quantities**: WAGES metrics (77 in use) - query `quantities` table, filter by `telemetry_15min_agg`
+- **Quantities**: WAGE metrics (77 in use) - query `quantities` table, filter by `telemetry_15min_agg`
 - **Telemetry**: Raw data in `telemetry_data` (14 days), aggregates in `telemetry_15min_agg` (2 years)
 - **Cost Data**: `daily_energy_cost_summary` table with pre-calculated costs by shift and rate
   - Columns: daily_bucket, device_id, tenant_id, shift_period, rate_code, total_consumption, total_cost
@@ -167,11 +143,6 @@ Features:
   - Used by `get_group_telemetry` for aggregating consumption by group
 - **Assets**: `assets` table with hierarchical structure (parent_id, utility_path)
   - Database functions: `get_all_downstream_assets()`, `get_downstream_devices_by_depth()`
-- **Meter Aggregations**: `meter_aggregations` table for named formula-based device groups
-  - Columns: tenant_id, name, aggregation_type, formula, description
-  - Formula syntax: `94+11+27` (sum), `94-84` (difference), `(94+11+27)-(84)` (grouped)
-  - Example: PRS facility = `94+11+27` (Main + Genset + Solar)
-  - Used by `get_wages_data` with `aggregation` parameter
 
 Primary quantity IDs for energy: 124 (Active Energy Delivered), 185 (Active Power)
 
