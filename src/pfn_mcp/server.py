@@ -21,6 +21,7 @@ from pfn_mcp.tools import peak_analysis as peak_analysis_tool
 from pfn_mcp.tools import quantities as quantities_tool
 from pfn_mcp.tools import telemetry as telemetry_tool
 from pfn_mcp.tools import tenants as tenants_tool
+from pfn_mcp.tools import wages_data as wages_data_tool
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -285,6 +286,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text=f"Error: {e}")]
 
     elif name == "get_electricity_cost":
+        # DEPRECATED: Use get_wages_data instead
+        logger.warning("get_electricity_cost is deprecated, use get_wages_data")
         try:
             result = await electricity_cost_tool.get_electricity_cost(
                 device=arguments.get("device"),
@@ -295,7 +298,11 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 breakdown=arguments.get("breakdown", "none"),
             )
             response = electricity_cost_tool.format_electricity_cost_response(result)
-            return [TextContent(type="text", text=response)]
+            deprecation_note = (
+                "⚠️ DEPRECATED: get_electricity_cost will be removed. "
+                "Use get_wages_data instead.\n\n"
+            )
+            return [TextContent(type="text", text=deprecation_note + response)]
         except Exception as e:
             logger.error(f"get_electricity_cost failed: {e}")
             return [TextContent(type="text", text=f"Error: {e}")]
@@ -381,6 +388,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text=f"Error: {e}")]
 
     elif name == "get_group_telemetry":
+        # DEPRECATED: Use get_wages_data instead
+        logger.warning("get_group_telemetry is deprecated, use get_wages_data")
         try:
             result = await group_telemetry_tool.get_group_telemetry(
                 tenant=arguments.get("tenant"),
@@ -397,7 +406,11 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 output=arguments.get("output", "summary"),
             )
             response = group_telemetry_tool.format_group_telemetry_response(result)
-            return [TextContent(type="text", text=response)]
+            deprecation_note = (
+                "⚠️ DEPRECATED: get_group_telemetry will be removed. "
+                "Use get_wages_data with tag_key/tag_value instead.\n\n"
+            )
+            return [TextContent(type="text", text=deprecation_note + response)]
         except Exception as e:
             logger.error(f"get_group_telemetry failed: {e}")
             return [TextContent(type="text", text=f"Error: {e}")]
@@ -421,6 +434,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text=f"Error: {e}")]
 
     elif name == "get_peak_analysis":
+        # DEPRECATED: Use get_wages_data with agg_method="max" instead
+        logger.warning("get_peak_analysis is deprecated, use get_wages_data")
         try:
             result = await peak_analysis_tool.get_peak_analysis(
                 tenant=arguments.get("tenant"),
@@ -439,9 +454,40 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 breakdown=arguments.get("breakdown", "none"),
             )
             response = peak_analysis_tool.format_peak_analysis_response(result)
-            return [TextContent(type="text", text=response)]
+            deprecation_note = (
+                "⚠️ DEPRECATED: get_peak_analysis will be removed. "
+                "Use get_wages_data with agg_method='max' instead.\n\n"
+            )
+            return [TextContent(type="text", text=deprecation_note + response)]
         except Exception as e:
             logger.error(f"get_peak_analysis failed: {e}")
+            return [TextContent(type="text", text=f"Error: {e}")]
+
+    elif name == "get_wages_data":
+        try:
+            result = await wages_data_tool.get_wages_data(
+                device_id=arguments.get("device_id"),
+                device_name=arguments.get("device_name"),
+                tag_key=arguments.get("tag_key"),
+                tag_value=arguments.get("tag_value"),
+                tags=arguments.get("tags"),
+                asset_id=arguments.get("asset_id"),
+                aggregation=arguments.get("aggregation"),
+                formula=arguments.get("formula"),
+                quantity_id=arguments.get("quantity_id"),
+                quantity_search=arguments.get("quantity_search"),
+                tenant=arguments.get("tenant"),
+                period=arguments.get("period"),
+                start_date=arguments.get("start_date"),
+                end_date=arguments.get("end_date"),
+                agg_method=arguments.get("agg_method"),
+                breakdown=arguments.get("breakdown", "none"),
+                output=arguments.get("output", "summary"),
+            )
+            response = wages_data_tool.format_wages_data_response(result)
+            return [TextContent(type="text", text=response)]
+        except Exception as e:
+            logger.error(f"get_wages_data failed: {e}")
             return [TextContent(type="text", text=f"Error: {e}")]
 
     else:

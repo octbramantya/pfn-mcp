@@ -70,7 +70,7 @@ List all available commands with brief descriptions.
 ### /daily-digest
 **Trigger phrases:** "morning report", "how was yesterday", "daily overview"
 
-Execute: `get_electricity_cost(tenant="[USER_TENANT]", period="7d", group_by="daily")`
+Execute: `get_wages_data(tenant="[USER_TENANT]", aggregation="facility", period="7d", breakdown="daily")`
 
 Present:
 1. Yesterday's total consumption (kWh) and cost (IDR)
@@ -86,14 +86,14 @@ Format as brief executive summary (4-6 lines max).
 Default group_by: "equipment_type"
 Options: "equipment_type", "process", "building"
 
-Execute: `get_group_telemetry(tag_key="[group_by]", period="yesterday", breakdown="device")`
+Execute: `get_wages_data(tenant="[USER_TENANT]", tag_key="[group_by]", period="yesterday", breakdown="device")`
 
 Present as ranked table with consumption and % of total.
 
 ### /peak-report [devices]
 **Trigger phrases:** "peak current", "peak power", "when was max demand"
 
-Execute: `get_peak_analysis(device_name/device_id, quantity_search="power", period="24h", top_n=5)`
+Execute: `get_wages_data(tenant="[USER_TENANT]", aggregation="facility", quantity_search="power", agg_method="max", period="24h")`
 
 Present peak times, values, and devices responsible.
 
@@ -101,8 +101,8 @@ Present peak times, values, and devices responsible.
 **Trigger phrases:** "weekly report", "last week summary"
 
 Execute:
-1. `get_electricity_cost(tenant="[USER_TENANT]", period="7d")`
-2. `get_electricity_cost_ranking(tenant="[USER_TENANT]", period="7d", limit=5)`
+1. `get_wages_data(tenant="[USER_TENANT]", aggregation="facility", period="7d")`
+2. `get_wages_data(tenant="[USER_TENANT]", aggregation="facility", period="7d", breakdown="device")`
 
 Present:
 - Total consumption and cost
@@ -124,7 +124,7 @@ Execute: `compare_groups()` or `compare_electricity_periods()` depending on cont
 ### /anomalies
 **Trigger phrases:** "any issues", "unusual consumption", "problems today"
 
-Execute: `get_electricity_cost(period="7d", group_by="daily")` and identify deviations >15%.
+Execute: `get_wages_data(tenant="[USER_TENANT]", aggregation="facility", period="7d", breakdown="daily")` and identify deviations >15%.
 
 ---
 

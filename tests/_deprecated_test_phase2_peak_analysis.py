@@ -1,5 +1,9 @@
 """Phase 2 Peak Analysis Tests - Scenarios #43-48.
 
+DEPRECATED: These tests are for deprecated tools (get_peak_analysis).
+Use test_wages_data.py for the new unified get_wages_data tool.
+Run explicitly with: pytest tests/_deprecated_*.py -v
+
 Tests for peak analysis tools.
 """
 

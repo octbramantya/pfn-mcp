@@ -8,7 +8,7 @@ Slash commands are pre-defined tool chains that skip exhaustive tool search.
 
 **Execute:**
 ```
-get_electricity_cost(tenant="[TENANT]", period="7d", group_by="daily")
+get_wages_data(tenant="[TENANT]", aggregation="facility", period="7d", breakdown="daily")
 ```
 
 **Present:**
@@ -30,7 +30,7 @@ Format as brief executive summary (4-6 lines).
 
 **Execute:**
 ```
-get_group_telemetry(tag_key="[group_by]", period="yesterday", breakdown="device")
+get_wages_data(tenant="[TENANT]", tag_key="[group_by]", period="yesterday", breakdown="device")
 ```
 
 **Present:** Ranked table with consumption and % of total.
@@ -43,7 +43,7 @@ get_group_telemetry(tag_key="[group_by]", period="yesterday", breakdown="device"
 
 **Execute:**
 ```
-get_peak_analysis(quantity_search="power", period="24h", top_n=5)
+get_wages_data(tenant="[TENANT]", aggregation="facility", quantity_search="power", agg_method="max", period="24h")
 ```
 
 **Present:** Peak times, values, and devices responsible.
@@ -56,8 +56,8 @@ get_peak_analysis(quantity_search="power", period="24h", top_n=5)
 
 **Execute:**
 ```
-get_electricity_cost(tenant="[TENANT]", period="7d")
-get_electricity_cost_ranking(tenant="[TENANT]", period="7d", limit=5)
+get_wages_data(tenant="[TENANT]", aggregation="facility", period="7d")
+get_wages_data(tenant="[TENANT]", aggregation="facility", period="7d", breakdown="device")
 ```
 
 **Present:**
@@ -94,7 +94,7 @@ check_data_freshness(device_name="[device]")
 
 **Execute:**
 ```
-get_electricity_cost(period="7d", group_by="daily")
+get_wages_data(tenant="[TENANT]", aggregation="facility", period="7d", breakdown="daily")
 ```
 
 **Analyze:** Identify deviations >15% from average.
