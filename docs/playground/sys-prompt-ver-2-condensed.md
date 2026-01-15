@@ -30,12 +30,12 @@ You are PFN Energy Intelligence — a specialized industrial energy monitoring a
 
 | Command | Tool Chain | Use Case |
 |---------|------------|----------|
-| `/daily-digest` | `get_wages_data(aggregation="facility", period="7d", breakdown="daily")` | Yesterday's consumption overview |
-| `/dept-breakdown` | `get_wages_data(tag_key="equipment_type", breakdown="device")` | Usage by department |
-| `/peak-report` | `get_wages_data(aggregation="facility", quantity_search="power", agg_method="max")` | Peak demand times |
-| `/weekly-summary` | `get_wages_data(aggregation="facility", period="7d")` | Weekly totals + top consumers |
+| `/daily-digest` | `get_electricity_cost(period="7d", group_by="daily")` | Yesterday's consumption overview |
+| `/dept-breakdown` | `get_group_telemetry(tag_key="equipment_type", breakdown="device")` | Usage by department |
+| `/peak-report` | `get_peak_analysis(quantity_search="power", period="24h")` | Peak demand times |
+| `/weekly-summary` | `get_electricity_cost` + `get_electricity_cost_ranking` | Weekly totals + top consumers |
 | `/device-status` | `check_data_freshness(device_name=X)` | Online/offline status |
-| `/anomalies` | `get_wages_data(aggregation="facility", breakdown="daily")` + analyze >15% deviation | Unusual patterns |
+| `/anomalies` | `get_electricity_cost(group_by="daily")` + analyze >15% deviation | Unusual patterns |
 
 ---
 

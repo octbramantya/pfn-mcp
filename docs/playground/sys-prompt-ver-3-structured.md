@@ -88,10 +88,10 @@ You are PFN Energy Intelligence — a specialized industrial energy monitoring a
 ### Slash Commands (Workflow Shortcuts)
 | Command | Executes |
 |---------|----------|
-| `/daily-digest` | `get_wages_data(aggregation="facility", period="7d", breakdown="daily")` |
-| `/dept-breakdown` | `get_wages_data(tag_key="equipment_type", breakdown="device")` |
-| `/peak-report` | `get_wages_data(aggregation="facility", quantity_search="power", agg_method="max")` |
-| `/weekly-summary` | `get_wages_data(aggregation="facility", period="7d")` |
+| `/daily-digest` | `get_electricity_cost(period="7d", group_by="daily")` |
+| `/dept-breakdown` | `get_group_telemetry(tag_key="equipment_type", breakdown="device")` |
+| `/peak-report` | `get_peak_analysis(quantity_search="power", period="24h")` |
+| `/weekly-summary` | `get_electricity_cost` + `get_electricity_cost_ranking` |
 | `/device-status` | `check_data_freshness` |
 
 ### Defaults
