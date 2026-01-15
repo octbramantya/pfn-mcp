@@ -235,6 +235,9 @@ tools:
       - name: device_name
         type: string
         description: Device name (fuzzy search)
+      - name: tenant
+        type: string
+        description: "Tenant name or code to filter devices (e.g., 'PRS')"
       - name: quantity_id
         type: integer
         description: Quantity ID (preferred over quantity_search)
@@ -270,6 +273,9 @@ tools:
         type: integer
         description: Device ID to query
         required: true
+      - name: tenant
+        type: string
+        description: "Tenant name or code to validate device access (e.g., 'PRS')"
       - name: quantity_id
         type: integer
         description: Quantity ID (preferred over quantity_search)
@@ -296,6 +302,9 @@ tools:
       - name: device_name
         type: string
         description: Device name (fuzzy search)
+      - name: tenant
+        type: string
+        description: "Tenant name or code to filter devices (e.g., 'PRS')"
       - name: quantity_id
         type: integer
         description: "Energy quantity ID (e.g., 124 for Active Energy Delivered)"
@@ -327,6 +336,7 @@ tools:
   - name: get_electricity_cost
     tenant_aware: true
     description: >-
+      ⚠️ DEPRECATED: Use get_wages_data instead.
       Get electricity consumption and cost for a device or tenant.
       Queries pre-aggregated daily cost data with time-of-use (TOU) rates.
 
@@ -439,7 +449,11 @@ tools:
       List available device tags for grouping.
       Tags allow flexible grouping by process, building, area, etc.
       Shows tag keys, values, and device counts by category.
+      Filters to tags used by devices in the user's tenant.
     params:
+      - name: tenant
+        type: string
+        description: "Tenant name or code to filter tags by devices (e.g., 'PRS')"
       - name: tag_key
         type: string
         description: "Filter by specific tag key (e.g., 'process', 'building')"
@@ -453,7 +467,11 @@ tools:
       List all values for a specific tag key with device counts.
       Shows which devices belong to each tag value.
       Use to explore available groupings before get_group_telemetry.
+      Filters to tags used by devices in the user's tenant.
     params:
+      - name: tenant
+        type: string
+        description: "Tenant name or code to filter tags by devices (e.g., 'PRS')"
       - name: tag_key
         type: string
         description: "Tag key to list values for (e.g., 'process', 'building')"
@@ -480,13 +498,18 @@ tools:
   - name: get_group_telemetry
     tenant_aware: true
     description: >-
+      ⚠️ DEPRECATED: Use get_wages_data with tag_key/tag_value instead.
       Get aggregated telemetry for a group of devices.
       Default: electricity consumption/cost.
-      With quantity: any WAGE metric (power, water flow, air pressure, etc.).
+      With quantity: any WAGES metric (power, water flow, air pressure, etc.).
       Group by: single tag (tag_key + tag_value), multiple tags with AND logic (tags array),
       or asset hierarchy (asset_id).
       Supports breakdown by device or daily.
+      Auto-filters to devices in the user's tenant.
     params:
+      - name: tenant
+        type: string
+        description: "Tenant name or code to filter devices (e.g., 'PRS')"
       - name: tag_key
         type: string
         description: "Tag key for single-tag grouping (e.g., 'process', 'building')"
@@ -538,7 +561,11 @@ tools:
       Compare electricity consumption across multiple groups.
       Each group can be defined by tag or asset.
       Returns consumption, cost, and percentage for each group.
+      Auto-filters to devices in the user's tenant.
     params:
+      - name: tenant
+        type: string
+        description: "Tenant name or code to filter devices (e.g., 'PRS')"
       - name: groups
         type: array
         items: object
@@ -563,11 +590,16 @@ tools:
   - name: get_peak_analysis
     tenant_aware: true
     description: >-
+      ⚠️ DEPRECATED: Use get_wages_data with agg_method="max" instead.
       Find peak values with timestamps for a device or group.
       Returns top N peaks per bucket (hour/day/week).
       Shows which device caused each peak.
-      Supports any WAGE quantity: power, flow, pressure, etc.
+      Supports any WAGES quantity: power, flow, pressure, etc.
+      Auto-filters to devices in the user's tenant.
     params:
+      - name: tenant
+        type: string
+        description: "Tenant name or code to filter devices (e.g., 'PRS')"
       - name: device_id
         type: integer
         description: Single device ID
@@ -611,3 +643,105 @@ tools:
         description: "Breakdown: 'none' or 'device_daily' (default: none)"
         enum: [none, device_daily]
         default: none
+
+  # ===========================================================================
+  # PHASE 3: Unified WAGES Tool (replaces overlapping tools)
+  # ===========================================================================
+
+  - name: get_wages_data
+    tenant_aware: true
+    description: >-
+      **Unified WAGES telemetry tool** - queries Water, Air, Gas, Electricity, Steam data.
+      Combines functionality of get_electricity_cost, get_group_telemetry, get_peak_analysis.
+
+      **Scope selection (use ONE):**
+      - device_id/device_name: Query single device
+      - tag_key + tag_value: Query devices by tag (SUM aggregated)
+      - tags: Multi-tag AND query [{"key": "...", "value": "..."}]
+      - asset_id: Query all devices under an asset hierarchy
+      - aggregation: Named aggregation from database (e.g., "facility", "yarn_division")
+      - formula: Inline device formula (e.g., "94+11+27", "94-84")
+
+      **Quantity selection:**
+      - Omit quantity params for electricity/energy cost (uses daily_energy_cost_summary)
+      - Set quantity_id or quantity_search for other WAGES metrics (uses telemetry_15min_agg)
+
+      **Aggregation methods:**
+      - sum: Total value (default for energy/cumulative quantities)
+      - avg: Average value (default for power/instantaneous quantities)
+      - max: Peak/maximum value with timestamp (replaces get_peak_analysis)
+      - min: Minimum value
+
+      **Examples:**
+      - Facility cost: aggregation="facility", period="7d"
+      - Peak power: aggregation="facility", quantity_search="power", agg_method="max"
+      - Department breakdown: tag_key="department", breakdown="device"
+      - Formula query: formula="94-84", period="1M" (subtraction supported)
+
+    params:
+      # === Scope (use one) ===
+      - name: device_id
+        type: integer
+        description: Single device ID
+      - name: device_name
+        type: string
+        description: Single device name (fuzzy match)
+      - name: tag_key
+        type: string
+        description: "Tag key for group query (e.g., 'process', 'building', 'department')"
+      - name: tag_value
+        type: string
+        description: "Tag value to match (e.g., 'Waterjet', 'Factory A')"
+      - name: tags
+        type: array
+        items: object
+        description: "Multi-tag AND query. Each item: {\"key\": \"...\", \"value\": \"...\"}"
+      - name: asset_id
+        type: integer
+        description: Asset ID for hierarchy-based grouping (includes all downstream devices)
+      - name: aggregation
+        type: string
+        description: "Named aggregation from meter_aggregations table (e.g., 'facility', 'yarn_division')"
+      - name: formula
+        type: string
+        description: "Inline device formula: '94+11+27' (sum), '94-84' (difference), '(94+11+27)-(84)' (grouped)"
+
+      # === Quantity ===
+      - name: quantity_id
+        type: integer
+        description: "Quantity ID for WAGES metrics. Omit for electricity/energy cost."
+      - name: quantity_search
+        type: string
+        description: "Quantity search term: 'power', 'voltage', 'water flow', etc. Omit for electricity/energy cost."
+
+      # === Time ===
+      - name: tenant
+        type: string
+        description: "Tenant name/code. Required for 'aggregation' scope."
+      - name: period
+        type: string
+        description: "Time period: '7d', '30d', '1M', '2025-01', '2025-01-01 to 2025-01-15' (default: 7d)"
+      - name: start_date
+        type: string
+        description: "Explicit start date (YYYY-MM-DD). Overrides period."
+      - name: end_date
+        type: string
+        description: "Explicit end date (YYYY-MM-DD). Overrides period."
+
+      # === Aggregation Method ===
+      - name: agg_method
+        type: string
+        description: "Aggregation method: sum (default for energy), avg (default for power), max (peak), min"
+        enum: [sum, avg, max, min]
+
+      # === Output Options ===
+      - name: breakdown
+        type: string
+        description: "Breakdown type: none, device, daily, shift, rate, shift_rate"
+        enum: [none, device, daily, shift, rate, shift_rate]
+        default: none
+      - name: output
+        type: string
+        description: "Output format: summary (default), timeseries"
+        enum: [summary, timeseries]
+        default: summary

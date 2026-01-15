@@ -1,5 +1,9 @@
 """Phase 2 Group Telemetry Tests - Scenarios #35-42.
 
+DEPRECATED: These tests are for deprecated tools (get_group_telemetry, etc.)
+Use test_wages_data.py for the new unified get_wages_data tool.
+Run explicitly with: pytest tests/_deprecated_*.py -v
+
 Tests for group telemetry aggregation tools.
 """
 

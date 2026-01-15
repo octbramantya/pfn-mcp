@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 from pfn_mcp import db
 from pfn_mcp.tools.datetime_utils import format_display_datetime
+from pfn_mcp.tools.resolve import resolve_tenant
 from pfn_mcp.tools.telemetry import (
     BUCKET_INTERVALS,
     BUCKET_LABELS,
@@ -306,6 +307,7 @@ async def _get_data_quality_summary(
 async def get_energy_consumption(
     device_id: int | None = None,
     device_name: str | None = None,
+    tenant: str | None = None,
     quantity_id: int | None = None,
     quantity_search: str | None = None,
     period: str | None = None,
@@ -323,6 +325,7 @@ async def get_energy_consumption(
     Args:
         device_id: Device ID (preferred)
         device_name: Device name (fuzzy search)
+        tenant: Tenant name or code to filter devices (optional)
         quantity_id: Energy quantity ID (e.g., 124 for Active Energy Delivered)
         quantity_search: Quantity search: energy, active energy, reactive energy
         period: Time period like "1h", "24h", "7d", "30d", "3M", "1Y"
@@ -334,9 +337,16 @@ async def get_energy_consumption(
     Returns:
         Dictionary with device, quantity, time range, consumption data, and optional cost
     """
-    # Resolve device
+    # Resolve tenant first (if provided)
+    tenant_id = None
+    if tenant:
+        tenant_id, _, error = await resolve_tenant(tenant)
+        if error:
+            return {"error": error}
+
+    # Resolve device with tenant filtering
     resolved_device_id, device_info, error = await _resolve_device_id(
-        device_id, device_name
+        device_id, device_name, tenant_id
     )
     if error:
         return {"error": error}

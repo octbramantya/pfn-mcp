@@ -3,7 +3,7 @@
 import logging
 
 from pfn_mcp import db
-from pfn_mcp.tools.quantities import QUANTITY_ALIASES
+from pfn_mcp.tools.quantities import expand_quantity_aliases
 
 logger = logging.getLogger(__name__)
 
@@ -61,24 +61,13 @@ async def list_device_quantities(
     param_idx = 2
 
     if search:
-        search_upper = search.upper().strip()
-        alias_patterns = []
-        for alias, patterns in QUANTITY_ALIASES.items():
-            if alias.upper() in search_upper or search_upper in alias.upper():
-                alias_patterns.extend(patterns)
-
-        if alias_patterns:
-            pattern_conditions = []
-            for pattern in alias_patterns:
-                pattern_conditions.append(f"q.quantity_code ILIKE ${param_idx}")
-                params.append(f"%{pattern}%")
-                param_idx += 1
-            quantity_conditions.append(f"({' OR '.join(pattern_conditions)})")
-        else:
-            quantity_conditions.append(
-                f"(q.quantity_name ILIKE ${param_idx} OR q.quantity_code ILIKE ${param_idx})"
-            )
-            params.append(f"%{search}%")
+        alias_patterns = expand_quantity_aliases(search)
+        pattern_conditions = []
+        for pattern in alias_patterns:
+            pattern_conditions.append(f"q.quantity_code ILIKE ${param_idx}")
+            params.append(pattern)
+            param_idx += 1
+        quantity_conditions.append(f"({' OR '.join(pattern_conditions)})")
 
     where_clause = " AND ".join(quantity_conditions)
 
@@ -171,24 +160,13 @@ async def compare_device_quantities(
     param_offset = len(device_ids_resolved) + 1
 
     if search:
-        search_upper = search.upper().strip()
-        alias_patterns = []
-        for alias, patterns in QUANTITY_ALIASES.items():
-            if alias.upper() in search_upper or search_upper in alias.upper():
-                alias_patterns.extend(patterns)
-
-        if alias_patterns:
-            pattern_conditions = []
-            for pattern in alias_patterns:
-                pattern_conditions.append(f"q.quantity_code ILIKE ${param_offset}")
-                base_params.append(f"%{pattern}%")
-                param_offset += 1
-            quantity_conditions.append(f"({' OR '.join(pattern_conditions)})")
-        else:
-            quantity_conditions.append(
-                f"(q.quantity_name ILIKE ${param_offset} OR q.quantity_code ILIKE ${param_offset})"
-            )
-            base_params.append(f"%{search}%")
+        alias_patterns = expand_quantity_aliases(search)
+        pattern_conditions = []
+        for pattern in alias_patterns:
+            pattern_conditions.append(f"q.quantity_code ILIKE ${param_offset}")
+            base_params.append(pattern)
+            param_offset += 1
+        quantity_conditions.append(f"({' OR '.join(pattern_conditions)})")
 
     where_clause = " AND ".join(quantity_conditions)
 

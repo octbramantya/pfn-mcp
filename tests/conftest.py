@@ -142,3 +142,20 @@ async def device_with_energy_data(db_pool, sample_tenant):
         LIMIT 1
     """, sample_tenant["id"])
     return result
+
+
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
+async def sample_aggregation(db_pool, sample_tenant):
+    """Get a sample meter aggregation for testing (from meter_aggregations table)."""
+    try:
+        result = await db.fetch_one("""
+            SELECT id, name, aggregation_type, formula, description
+            FROM meter_aggregations
+            WHERE tenant_id = $1 AND is_active = true
+            ORDER BY name
+            LIMIT 1
+        """, sample_tenant["id"])
+        return result
+    except Exception:
+        # Table doesn't exist yet (migration not run)
+        return None
