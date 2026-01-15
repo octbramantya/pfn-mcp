@@ -37,7 +37,9 @@ BreakdownType = Literal["none", "device", "daily", "shift", "rate", "shift_rate"
 OutputType = Literal["summary", "timeseries"]
 
 # Constants
-ACTIVE_ENERGY_QTY_ID = 124
+# Active Energy quantities: 124 (older meters), 131 (newer meters)
+# Note: 130 is duplicate of 124, excluded to avoid double-counting
+ACTIVE_ENERGY_QTY_IDS = (124, 131)
 CUMULATIVE_QUANTITY_IDS = {62, 89, 96, 124, 130, 131, 481}
 
 BUCKET_MINUTES = {
@@ -606,7 +608,7 @@ async def _query_energy_cost(
     # Build device filter
     device_placeholders = ", ".join(f"${i+3}" for i in range(len(device_ids)))
 
-    # Get per-device totals
+    # Get per-device totals (filter by Active Energy Delivered quantity only)
     device_query = f"""
         SELECT
             device_id,
@@ -615,6 +617,7 @@ async def _query_energy_cost(
         FROM daily_energy_cost_summary
         WHERE daily_bucket >= $1
           AND daily_bucket < $2
+          AND quantity_id IN {ACTIVE_ENERGY_QTY_IDS}
           AND device_id IN ({device_placeholders})
         GROUP BY device_id
     """
@@ -648,6 +651,7 @@ async def _query_energy_cost(
         FROM daily_energy_cost_summary
         WHERE daily_bucket >= $1
           AND daily_bucket < $2
+          AND quantity_id IN {ACTIVE_ENERGY_QTY_IDS}
           AND device_id IN ({device_placeholders})
     """
     days_result = await db.fetch_one(days_query, query_start, query_end, *device_ids)
@@ -708,6 +712,7 @@ async def _get_energy_breakdown(
             JOIN devices d ON d.id = e.device_id
             WHERE e.daily_bucket >= $1
               AND e.daily_bucket < $2
+              AND e.quantity_id IN {ACTIVE_ENERGY_QTY_IDS}
               AND e.device_id IN ({device_placeholders})
             GROUP BY d.id, d.display_name
             ORDER BY consumption DESC
@@ -738,6 +743,7 @@ async def _get_energy_breakdown(
             FROM daily_energy_cost_summary
             WHERE daily_bucket >= $1
               AND daily_bucket < $2
+              AND quantity_id IN {ACTIVE_ENERGY_QTY_IDS}
               AND device_id IN ({device_placeholders})
             GROUP BY daily_bucket::date
             ORDER BY date
@@ -762,6 +768,7 @@ async def _get_energy_breakdown(
             FROM daily_energy_cost_summary
             WHERE daily_bucket >= $1
               AND daily_bucket < $2
+              AND quantity_id IN {ACTIVE_ENERGY_QTY_IDS}
               AND device_id IN ({device_placeholders})
             GROUP BY shift_period
             ORDER BY shift_period
@@ -791,6 +798,7 @@ async def _get_energy_breakdown(
             FROM daily_energy_cost_summary
             WHERE daily_bucket >= $1
               AND daily_bucket < $2
+              AND quantity_id IN {ACTIVE_ENERGY_QTY_IDS}
               AND device_id IN ({device_placeholders})
             GROUP BY rate_code
             ORDER BY rate_code
@@ -821,6 +829,7 @@ async def _get_energy_breakdown(
             FROM daily_energy_cost_summary
             WHERE daily_bucket >= $1
               AND daily_bucket < $2
+              AND quantity_id IN {ACTIVE_ENERGY_QTY_IDS}
               AND device_id IN ({device_placeholders})
             GROUP BY shift_period, rate_code
             ORDER BY shift_period, rate_code
