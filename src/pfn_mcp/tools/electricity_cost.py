@@ -113,7 +113,80 @@ def parse_period(
         except ValueError:
             return None, f"Invalid date range format: {period}"
 
+    # Try natural language periods (fallback)
+    period_lower = period.lower().strip()
+    nl_result = _parse_natural_language_period(period_lower, today)
+    if nl_result:
+        return nl_result
+
     return None, f"Invalid period format: {period}. Use: 7d, 1M, 2025-12, or date range"
+
+
+def _parse_natural_language_period(
+    period: str, today: datetime
+) -> tuple[datetime, datetime] | None:
+    """Parse common natural language period terms.
+
+    Supports English and Indonesian terms:
+    - yesterday, kemarin
+    - today, hari ini
+    - day before yesterday, kemarin lusa
+    - last week, minggu lalu
+    - this week, minggu ini
+    - last month, bulan lalu
+    - this month, bulan ini
+
+    Returns (start, end) datetimes or None if not recognized.
+    """
+    # Single day references
+    if period in ("yesterday", "kemarin"):
+        yesterday = today - timedelta(days=1)
+        return yesterday, today
+
+    if period in ("today", "hari ini"):
+        return today, today + timedelta(days=1)
+
+    if period in ("day before yesterday", "kemarin lusa", "2 days ago"):
+        day_before = today - timedelta(days=2)
+        return day_before, day_before + timedelta(days=1)
+
+    # Week references
+    if period in ("last week", "minggu lalu"):
+        return today - timedelta(days=7), today + timedelta(days=1)
+
+    if period in ("this week", "minggu ini"):
+        # Monday of this week
+        days_since_monday = today.weekday()
+        start_of_week = today - timedelta(days=days_since_monday)
+        return start_of_week, today + timedelta(days=1)
+
+    # Month references
+    if period in ("last month", "bulan lalu"):
+        # First day of last month
+        first_of_this_month = today.replace(day=1)
+        last_month_end = first_of_this_month
+        if today.month == 1:
+            last_month_start = datetime(today.year - 1, 12, 1)
+        else:
+            last_month_start = datetime(today.year, today.month - 1, 1)
+        return last_month_start, last_month_end
+
+    if period in ("this month", "bulan ini"):
+        first_of_month = today.replace(day=1)
+        return first_of_month, today + timedelta(days=1)
+
+    # "last N days/hours" pattern
+    last_n_match = re.match(r"last\s+(\d+)\s+(day|days|hour|hours)", period)
+    if last_n_match:
+        n = int(last_n_match.group(1))
+        unit = last_n_match.group(2)
+        if unit.startswith("day"):
+            return today - timedelta(days=n), today + timedelta(days=1)
+        elif unit.startswith("hour"):
+            now = datetime.now(UTC).replace(tzinfo=None)
+            return now - timedelta(hours=n), now
+
+    return None
 
 
 async def _resolve_device(

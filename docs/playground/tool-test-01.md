@@ -1,50 +1,44 @@
-# How was yesterday?
+# /daily-digest
 Model: claude-sonnet-4-20250514
-Date: 1/15/2026, 4:26:35 PM
-[DEBUG MODE - includes tool calls and thinking]
+Date: 1/15/2026, 5:38:42 PM
+[DEBUG MODE - includes tool calls, parameters, and thinking]
 
 ---
 
-[USER] 1/15/2026, 4:26:36 PM
-How was yesterday?
+[USER] 1/15/2026, 5:38:43 PM
+/daily-digest
 
-[ASSISTANT] 1/15/2026, 4:26:40 PM
-I'll get yesterday's energy consumption and cost data for your facility.
+[ASSISTANT] 1/15/2026, 5:38:47 PM
+I'll get your daily digest with the facility overview for the past 7 days.
 
-[TOOL: get_wages_data] 1/15/2026, 4:26:43 PM
+[TOOL: get_wages_data] 1/15/2026, 5:38:50 PM
 ## Energy Consumption Summary
 
 **Period:** 7d
 **Scope:** Aggregation: facility (94+11+27)
 
-- **Total Consumption:** 3,635,768.91 kWh
-- **Total Cost:** Rp 4,051,755,202
-- **Average Rate:** Rp 1,114.41/kWh
+- **Total Consumption:** 755,161.91 kWh
+- **Total Cost:** Rp 840,091,562
+- **Average Rate:** Rp 1,112.47/kWh
 - **Days with Data:** 8
 
 ### Breakdown by daily
-- **2026-01-08:** 370,132.40 kWh
-- **2026-01-09:** 447,435.14 kWh
-- **2026-01-10:** 476,285.15 kWh
-- **2026-01-11:** 477,831.70 kWh
-- **2026-01-12:** 507,047.15 kWh
-- **2026-01-13:** 500,150.62 kWh
-- **2026-01-14:** 511,084.65 kWh
-- **2026-01-15:** 345,802.11 kWh
+- **2026-01-08:** 74,541.85 kWh
+- **2026-01-09:** 92,476.79 kWh
+- **2026-01-10:** 98,711.21 kWh
+- **2026-01-11:** 98,640.40 kWh
+- **2026-01-12:** 104,164.84 kWh
+- **2026-01-13:** 102,946.02 kWh
+- **2026-01-14:** 105,049.48 kWh
+- **2026-01-15:** 78,631.33 kWh
 
-[ASSISTANT] 1/15/2026, 4:26:51 PM
-## Daily Energy Report - January 15th
+[ASSISTANT] 1/15/2026, 5:38:58 PM
+# Daily Digest - PRS Facility
 
-**Yesterday's Performance (Jan 15):**
-- **Consumption:** 345,802 kWh 
-- **Estimated Cost:** ~Rp 385,413,000
-- **Rate:** ~Rp 1,114/kWh
+**Yesterday (Jan 15):** 78,631 kWh consumed, costing Rp 87.5M  
+**Day-over-day:** -25.1% decrease vs Jan 14 (105,049 kWh)  
+**vs 7-day average:** -18.3% below average (96,270 kWh)  
 
-**Key Insights:**
-- **32% below recent average** (7-day avg: 519,691 kWh) - significant reduction
-- **24% below day-before** (Jan 14: 511,085 kWh)
-- **Lowest consumption in past week** - possible weekend/holiday operation
+**Anomalies detected:** Jan 8 significantly low (74,542 kWh, -22.6% below average) - possible partial day data. Jan 15 also below normal pattern.
 
-**7-Day Trend:** Generally stable 470-510k kWh range, with yesterday's notable drop suggesting reduced operations or scheduled downtime.
-
-Would you like me to check if this was planned maintenance or investigate which equipment/departments had reduced activity?
+**Trend:** Consumption peaked mid-week (Jan 12-14) averaging 104K kWh, then dropped significantly on Jan 15. Average rate steady at Rp 1,112/kWh.
