@@ -29,7 +29,7 @@ class ChatSettings(BaseSettings):
 
     # Server
     chat_host: str = "0.0.0.0"
-    chat_port: int = 8001
+    chat_port: int = 8002
 
     # LLM settings (direct Anthropic SDK)
     llm_model: str = "claude-sonnet-4-20250514"
