@@ -73,6 +73,39 @@ CATEGORY_ALIASES = {
 }
 
 
+def expand_quantity_aliases(search: str) -> list[str]:
+    """
+    Expand semantic search term to quantity code patterns.
+
+    Maps user-friendly terms like "power", "voltage", "current" to
+    the actual quantity_code patterns used in the database.
+
+    Args:
+        search: User search term (e.g., "power", "voltage", "thd")
+
+    Returns:
+        List of SQL ILIKE patterns to match against quantity_code.
+        Returns ["%{search}%"] if no alias matches.
+
+    Example:
+        >>> expand_quantity_aliases("power")
+        ['%ACTIVE_POWER%']
+        >>> expand_quantity_aliases("voltage")
+        ['%VOLTAGE_L-N_AV%', '%VOLTAGE_L-N_AVG%', '%VOLTAGE_L-N%']
+    """
+    search_upper = search.upper().strip()
+    patterns = []
+
+    for alias, alias_patterns in QUANTITY_ALIASES.items():
+        if alias.upper() in search_upper or search_upper in alias.upper():
+            patterns.extend(alias_patterns)
+
+    if patterns:
+        # Return as SQL ILIKE patterns
+        return [f"%{p}%" for p in patterns]
+    return [f"%{search}%"]
+
+
 async def list_quantities(
     category: str | None = None,
     search: str | None = None,
@@ -108,31 +141,15 @@ async def list_quantities(
         params.append(normalized_category)
         param_idx += 1
 
-    # Search filter - check for semantic aliases first
+    # Search filter - expand semantic aliases
     if search:
-        search_upper = search.upper().strip()
-
-        # Expand semantic aliases
-        alias_patterns = []
-        for alias, patterns in QUANTITY_ALIASES.items():
-            if alias.upper() in search_upper or search_upper in alias.upper():
-                alias_patterns.extend(patterns)
-
-        if alias_patterns:
-            # Use alias patterns for matching
-            pattern_conditions = []
-            for pattern in alias_patterns:
-                pattern_conditions.append(f"q.quantity_code ILIKE ${param_idx}")
-                params.append(f"%{pattern}%")
-                param_idx += 1
-            conditions.append(f"({' OR '.join(pattern_conditions)})")
-        else:
-            # Direct search on name and code
-            conditions.append(
-                f"(q.quantity_name ILIKE ${param_idx} OR q.quantity_code ILIKE ${param_idx})"
-            )
-            params.append(f"%{search}%")
+        alias_patterns = expand_quantity_aliases(search)
+        pattern_conditions = []
+        for pattern in alias_patterns:
+            pattern_conditions.append(f"q.quantity_code ILIKE ${param_idx}")
+            params.append(pattern)
             param_idx += 1
+        conditions.append(f"({' OR '.join(pattern_conditions)})")
 
     where_clause = " AND ".join(conditions)
 

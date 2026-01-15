@@ -14,6 +14,7 @@ from pfn_mcp.tools import peak_analysis as peak_analysis_tool
 from pfn_mcp.tools import quantities as quantities_tool
 from pfn_mcp.tools import telemetry as telemetry_tool
 from pfn_mcp.tools import tenants as tenants_tool
+from pfn_mcp.tools import wages_data as wages_data_tool
 
 # Type alias for tool functions
 ToolFunc = Callable[..., Any]
@@ -118,6 +119,11 @@ TOOL_REGISTRY: dict[str, tuple[ToolFunc, FormatFunc]] = {
     "get_peak_analysis": (
         peak_analysis_tool.get_peak_analysis,
         peak_analysis_tool.format_peak_analysis_response,
+    ),
+    # Unified WAGES tool (Phase 3)
+    "get_wages_data": (
+        wages_data_tool.get_wages_data,
+        wages_data_tool.format_wages_data_response,
     ),
 }
 

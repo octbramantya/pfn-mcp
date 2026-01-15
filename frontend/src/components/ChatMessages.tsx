@@ -1,25 +1,54 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useMemo } from 'react';
 
 import { MessageBubble } from '@/components/MessageBubble';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useAuth } from '@/contexts/AuthContext';
 import type { Message, StreamingMessage } from '@/lib/types';
+
+// Slash commands from workflows.md
+const QUICK_ACTIONS = [
+  { command: '/daily-digest', label: 'Daily digest', description: "Yesterday's energy summary" },
+  { command: '/weekly-summary', label: 'Weekly summary', description: 'Top consumers & trends' },
+  { command: '/peak-report', label: 'Peak report', description: 'Peak power analysis' },
+  { command: '/dept-breakdown', label: 'Breakdown', description: 'By department/process' },
+];
+
+function getGreeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
+function getFirstName(fullName: string): string {
+  return fullName.split(' ')[0];
+}
 
 interface ChatMessagesProps {
   messages: Message[];
   streamingMessage: StreamingMessage | null;
   isLoading: boolean;
+  onSendMessage?: (message: string) => void;
 }
 
 export function ChatMessages({
   messages,
   streamingMessage,
   isLoading,
+  onSendMessage,
 }: ChatMessagesProps) {
+  const { user } = useAuth();
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  const greeting = useMemo(() => getGreeting(), []);
+  const firstName = useMemo(
+    () => (user?.name ? getFirstName(user.name) : ''),
+    [user?.name]
+  );
 
   // Auto-scroll to bottom when new content arrives
   useEffect(() => {
@@ -31,12 +60,26 @@ export function ChatMessages({
       <div className="flex h-full items-center justify-center px-6">
         <div className="text-center max-w-lg">
           <h2 className="text-2xl font-medium text-foreground mb-3">
-            Welcome to PFN Chat
+            {greeting}{firstName && `, ${firstName}`}
           </h2>
-          <p className="text-muted-foreground text-base leading-relaxed">
-            Ask me about energy consumption, electricity costs, power demand, or
-            any other data from your power meters.
+          <p className="text-muted-foreground text-base mb-6">
+            How can I help you with energy monitoring today?
           </p>
+
+          {/* Quick action buttons */}
+          <div className="flex flex-wrap justify-center gap-2">
+            {QUICK_ACTIONS.map((action) => (
+              <button
+                key={action.command}
+                onClick={() => onSendMessage?.(action.command)}
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-background hover:bg-accent hover:border-accent-foreground/20 transition-colors text-sm"
+                title={action.description}
+              >
+                <span className="text-muted-foreground font-mono text-xs">{action.command}</span>
+                <span className="text-foreground">{action.label}</span>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
     );

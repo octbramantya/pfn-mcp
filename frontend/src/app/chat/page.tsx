@@ -213,6 +213,7 @@ export default function ChatPage() {
           messages={messages}
           streamingMessage={streamingMessage}
           isLoading={isLoading}
+          onSendMessage={handleSendMessage}
         />
       </div>
 
