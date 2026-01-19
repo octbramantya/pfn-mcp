@@ -4,12 +4,12 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useState,
   type ReactNode,
 } from 'react';
+import useSWR from 'swr';
 
-import { listConversations } from '@/lib/api';
+import { swrFetcher } from '@/lib/swr';
 import type { Conversation } from '@/lib/types';
 
 interface ConversationsContextType {
@@ -21,26 +21,32 @@ interface ConversationsContextType {
   startNewChat: () => void;
   isNewChat: boolean;
   clearNewChatFlag: () => void;
+  updateConversationTitle: (id: string, title: string) => void;
 }
 
 const ConversationsContext = createContext<ConversationsContextType | undefined>(undefined);
 
 export function ConversationsProvider({ children }: { children: ReactNode }) {
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [isNewChat, setIsNewChat] = useState(false);
 
-  const refresh = useCallback(async () => {
-    try {
-      const data = await listConversations(50);
-      setConversations(data);
-    } catch (error) {
-      console.error('Failed to load conversations:', error);
-    } finally {
-      setIsLoading(false);
+  // Use SWR for automatic deduplication and caching
+  const {
+    data: conversations,
+    isLoading,
+    mutate,
+  } = useSWR<Conversation[]>(
+    '/api/conversations?limit=50&offset=0',
+    swrFetcher,
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 2000,
     }
-  }, []);
+  );
+
+  const refresh = useCallback(async () => {
+    await mutate();
+  }, [mutate]);
 
   const startNewChat = useCallback(() => {
     setActiveConversationId(null);
@@ -51,15 +57,18 @@ export function ConversationsProvider({ children }: { children: ReactNode }) {
     setIsNewChat(false);
   }, []);
 
-  // Load conversations on mount
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  const updateConversationTitle = useCallback((id: string, title: string) => {
+    // Optimistically update the cache
+    mutate(
+      (current) => current?.map((c) => (c.id === id ? { ...c, title } : c)),
+      { revalidate: false }
+    );
+  }, [mutate]);
 
   return (
     <ConversationsContext.Provider
       value={{
-        conversations,
+        conversations: conversations ?? [],
         isLoading,
         refresh,
         activeConversationId,
@@ -67,6 +76,7 @@ export function ConversationsProvider({ children }: { children: ReactNode }) {
         startNewChat,
         isNewChat,
         clearNewChatFlag,
+        updateConversationTitle,
       }}
     >
       {children}

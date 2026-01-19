@@ -36,6 +36,12 @@ export function parseSSEEvent(eventType: string, data: string): ChatEvent | null
           name: parsed.name,
           result: parsed.result,
         };
+      case 'title_update':
+        return {
+          type: 'title_update',
+          id: parsed.id,
+          title: parsed.title,
+        };
       case 'done':
         return {
           type: 'done',

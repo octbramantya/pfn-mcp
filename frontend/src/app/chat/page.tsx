@@ -23,7 +23,17 @@ export default function ChatPage() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const streamingContentRef = useRef<string>('');
 
-  const { conversations, refresh, activeConversationId, setActiveConversationId, isNewChat, clearNewChatFlag } = useConversations();
+  // Refs to avoid callback recreation when these values change
+  const messagesLengthRef = useRef(messages.length);
+  const conversationIdRef = useRef(conversationId);
+  const isLoadingRef = useRef(isLoading);
+
+  // Keep refs in sync with state
+  messagesLengthRef.current = messages.length;
+  conversationIdRef.current = conversationId;
+  isLoadingRef.current = isLoading;
+
+  const { conversations, refresh, activeConversationId, setActiveConversationId, isNewChat, clearNewChatFlag, updateConversationTitle } = useConversations();
 
   // Load conversation when active conversation changes
   useEffect(() => {
@@ -56,18 +66,87 @@ export default function ChatPage() {
     }
   }, [conversations, activeConversationId, setActiveConversationId, isNewChat]);
 
+  const handleStreamEvent = useCallback(
+    (event: ChatEvent, onConversationId: (id: string) => void) => {
+      switch (event.type) {
+        case 'conversation':
+          if (event.is_new) {
+            onConversationId(event.id);
+          }
+          break;
+
+        case 'content':
+          streamingContentRef.current += event.text;
+          setStreamingMessage((prev) =>
+            prev
+              ? { ...prev, content: prev.content + event.text }
+              : { role: 'assistant', content: event.text, isStreaming: true, toolCalls: [] }
+          );
+          break;
+
+        case 'tool_call':
+          setStreamingMessage((prev) => {
+            if (!prev) return prev;
+            const toolCall: ToolCallDisplay = {
+              name: event.name,
+              call_id: event.call_id,
+              isLoading: true,
+            };
+            return { ...prev, toolCalls: [...prev.toolCalls, toolCall] };
+          });
+          break;
+
+        case 'tool_result':
+          setStreamingMessage((prev) => {
+            if (!prev) return prev;
+            const updatedTools = prev.toolCalls.map((tc) =>
+              tc.name === event.name && tc.isLoading
+                ? { ...tc, result: event.result, isLoading: false }
+                : tc
+            );
+            return { ...prev, toolCalls: updatedTools };
+          });
+          break;
+
+        case 'title_update':
+          updateConversationTitle(event.id, event.title);
+          break;
+
+        case 'done':
+          setStreamingMessage((prev) =>
+            prev ? { ...prev, isStreaming: false } : null
+          );
+          break;
+
+        case 'error':
+          setStreamingMessage((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  content: prev.content + (prev.content ? '\n\n' : '') + 'Error: ' + event.message,
+                  isStreaming: false,
+                }
+              : null
+          );
+          break;
+      }
+    },
+    [updateConversationTitle]
+  );
+
   const handleSendMessage = useCallback(
     async (content: string) => {
-      if (isLoading) return;
+      // Use ref to avoid stale closure
+      if (isLoadingRef.current) return;
 
       setIsLoading(true);
 
-      // Add user message optimistically
+      // Add user message optimistically - use ref for sequence
       const userMessage: Message = {
         id: generateMessageId('user'),
         role: 'user',
         content,
-        sequence: messages.length,
+        sequence: messagesLengthRef.current,
         created_at: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, userMessage]);
@@ -85,14 +164,12 @@ export default function ChatPage() {
       abortControllerRef.current = new AbortController();
 
       try {
-        let newConversationId = conversationId;
-
+        // Use ref for conversationId to get current value
         for await (const event of streamChat(
-          { message: content, conversation_id: conversationId },
+          { message: content, conversation_id: conversationIdRef.current },
           abortControllerRef.current.signal
         )) {
           handleStreamEvent(event, async (id) => {
-            newConversationId = id;
             setConversationId(id);
             setActiveConversationId(id);
             clearNewChatFlag(); // Conversation created, reset flag
@@ -121,7 +198,7 @@ export default function ChatPage() {
             id: generateMessageId('assistant'),
             role: 'assistant',
             content: finalContent,
-            sequence: messages.length + 1,
+            sequence: messagesLengthRef.current + 1,
             created_at: new Date().toISOString(),
           };
           setMessages((msgs) => [...msgs, finalMessage]);
@@ -132,72 +209,8 @@ export default function ChatPage() {
         abortControllerRef.current = null;
       }
     },
-    [conversationId, isLoading, messages.length, refresh, setActiveConversationId]
+    [refresh, setActiveConversationId, clearNewChatFlag, handleStreamEvent]
   );
-
-  const handleStreamEvent = (
-    event: ChatEvent,
-    onConversationId: (id: string) => void
-  ) => {
-    switch (event.type) {
-      case 'conversation':
-        if (event.is_new) {
-          onConversationId(event.id);
-        }
-        break;
-
-      case 'content':
-        streamingContentRef.current += event.text;
-        setStreamingMessage((prev) =>
-          prev
-            ? { ...prev, content: prev.content + event.text }
-            : { role: 'assistant', content: event.text, isStreaming: true, toolCalls: [] }
-        );
-        break;
-
-      case 'tool_call':
-        setStreamingMessage((prev) => {
-          if (!prev) return prev;
-          const toolCall: ToolCallDisplay = {
-            name: event.name,
-            call_id: event.call_id,
-            isLoading: true,
-          };
-          return { ...prev, toolCalls: [...prev.toolCalls, toolCall] };
-        });
-        break;
-
-      case 'tool_result':
-        setStreamingMessage((prev) => {
-          if (!prev) return prev;
-          const updatedTools = prev.toolCalls.map((tc) =>
-            tc.name === event.name && tc.isLoading
-              ? { ...tc, result: event.result, isLoading: false }
-              : tc
-          );
-          return { ...prev, toolCalls: updatedTools };
-        });
-        break;
-
-      case 'done':
-        setStreamingMessage((prev) =>
-          prev ? { ...prev, isStreaming: false } : null
-        );
-        break;
-
-      case 'error':
-        setStreamingMessage((prev) =>
-          prev
-            ? {
-                ...prev,
-                content: prev.content + (prev.content ? '\n\n' : '') + 'Error: ' + event.message,
-                isStreaming: false,
-              }
-            : null
-        );
-        break;
-    }
-  };
 
   const handleStopGeneration = useCallback(() => {
     if (abortControllerRef.current) {

@@ -23,6 +23,9 @@ import { useConversations } from '@/contexts/ConversationsContext';
 import { deleteConversation, getConversation, updateConversationTitle } from '@/lib/api';
 import type { Conversation, ConversationDetail } from '@/lib/types';
 
+// Hoisted RegExp for performance (avoid recreation on each render)
+const THINK_BLOCK_RE = /<think>[\s\S]*?<\/think>/gi;
+
 export function ConversationList() {
   const { conversations, isLoading, refresh, activeConversationId, setActiveConversationId } = useConversations();
   const [deleteTarget, setDeleteTarget] = useState<Conversation | null>(null);
@@ -71,7 +74,9 @@ export function ConversationList() {
   // Export helpers
   const stripThinkingBlocks = (content: string): string => {
     // Remove <think>...</think> blocks (including multiline)
-    return content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+    // Reset lastIndex since global regex has mutable state
+    THINK_BLOCK_RE.lastIndex = 0;
+    return content.replace(THINK_BLOCK_RE, '').trim();
   };
 
   const formatToolCallParams = (argsJson: string): string => {

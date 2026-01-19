@@ -37,8 +37,9 @@ function getHeaders(): HeadersInit {
 
 /**
  * Make authenticated API request
+ * Exported for use with SWR fetcher
  */
-async function fetchAPI<T>(
+export async function fetchAPI<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {

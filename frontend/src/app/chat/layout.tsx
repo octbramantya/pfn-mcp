@@ -63,7 +63,7 @@ function ChatLayoutInner({
   children: React.ReactNode;
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;
-  user: { email?: string; is_superuser?: boolean; effective_tenant?: string } | null;
+  user: { email?: string; is_superuser?: boolean; effective_tenant?: string | null } | null;
   logout: () => void;
 }) {
   const { startNewChat } = useConversations();
