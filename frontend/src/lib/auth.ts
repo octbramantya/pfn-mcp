@@ -1,11 +1,16 @@
 /**
  * JWT token management utilities
+ * Uses in-memory caching to avoid repeated localStorage reads (sync I/O is expensive)
  */
 
 import { User } from './types';
 
 const TOKEN_KEY = 'pfn_chat_token';
 const USER_KEY = 'pfn_chat_user';
+
+// In-memory cache for token and user to avoid expensive localStorage reads
+let tokenCache: string | null | undefined = undefined;
+let userCache: User | null | undefined = undefined;
 
 /**
  * Store JWT token and user in localStorage
@@ -14,26 +19,41 @@ export function setAuth(token: string, user: User): void {
   if (typeof window === 'undefined') return;
   localStorage.setItem(TOKEN_KEY, token);
   localStorage.setItem(USER_KEY, JSON.stringify(user));
+  // Update cache
+  tokenCache = token;
+  userCache = user;
 }
 
 /**
- * Get stored JWT token
+ * Get stored JWT token (cached)
  */
 export function getToken(): string | null {
   if (typeof window === 'undefined') return null;
-  return localStorage.getItem(TOKEN_KEY);
+  // Return from cache if available
+  if (tokenCache !== undefined) return tokenCache;
+  // Read from localStorage and cache
+  tokenCache = localStorage.getItem(TOKEN_KEY);
+  return tokenCache;
 }
 
 /**
- * Get stored user data
+ * Get stored user data (cached)
  */
 export function getUser(): User | null {
   if (typeof window === 'undefined') return null;
+  // Return from cache if available
+  if (userCache !== undefined) return userCache;
+  // Read from localStorage and cache
   const userJson = localStorage.getItem(USER_KEY);
-  if (!userJson) return null;
+  if (!userJson) {
+    userCache = null;
+    return null;
+  }
   try {
-    return JSON.parse(userJson) as User;
+    userCache = JSON.parse(userJson) as User;
+    return userCache;
   } catch {
+    userCache = null;
     return null;
   }
 }
@@ -45,6 +65,9 @@ export function clearAuth(): void {
   if (typeof window === 'undefined') return;
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
+  // Clear cache
+  tokenCache = undefined;
+  userCache = undefined;
 }
 
 /**
@@ -78,6 +101,8 @@ export function updateUser(updates: Partial<User>): void {
   if (!user) return;
   const updatedUser = { ...user, ...updates };
   localStorage.setItem(USER_KEY, JSON.stringify(updatedUser));
+  // Update cache
+  userCache = updatedUser;
 }
 
 // =============================================================================

@@ -1,16 +1,30 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import { useMemo, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
 
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 import type { Message, ToolCallDisplay } from '@/lib/types';
+
+// Dynamic import react-markdown to reduce initial bundle size (~50KB+ gzipped)
+const ReactMarkdown = dynamic(
+  () => import('react-markdown'),
+  {
+    ssr: false,
+    loading: () => <Skeleton className="h-4 w-3/4" />,
+  }
+);
 
 interface MessageBubbleProps {
   message: Message;
   toolCalls?: ToolCallDisplay[];
   isStreaming?: boolean;
 }
+
+// Hoisted RegExp patterns for performance (avoid recreation on each render)
+const THINK_BLOCK_COMPLETE_RE = /<think>[\s\S]*?<\/think>\s*/g;
+const THINK_BLOCK_INCOMPLETE_RE = /<think>[\s\S]*$/g;
 
 /**
  * Process content to handle <think> blocks from models like MiniMax.
@@ -26,10 +40,14 @@ function processThinkBlocks(content: string, isStreaming: boolean): {
   const isThinking = isStreaming && hasOpenThink && !hasCloseThink;
 
   // Remove completed <think>...</think> blocks
+  // Note: Reset lastIndex since global regex has mutable state
+  THINK_BLOCK_COMPLETE_RE.lastIndex = 0;
+  THINK_BLOCK_INCOMPLETE_RE.lastIndex = 0;
+
   const displayContent = content
-    .replace(/<think>[\s\S]*?<\/think>\s*/g, '')
+    .replace(THINK_BLOCK_COMPLETE_RE, '')
     // Also remove incomplete <think> block if streaming
-    .replace(/<think>[\s\S]*$/g, '')
+    .replace(THINK_BLOCK_INCOMPLETE_RE, '')
     .trim();
 
   return { displayContent, isThinking };
@@ -68,7 +86,9 @@ export function MessageBubble({
         {/* Thinking indicator */}
         {isThinking && (
           <div className="flex items-center gap-2 text-muted-foreground text-sm">
-            <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+            <div className="animate-spin">
+              <span className="block w-3 h-3 border-2 border-current border-t-transparent rounded-full" />
+            </div>
             Thinking...
           </div>
         )}
@@ -116,7 +136,9 @@ function ToolCallCard({ tool }: { tool: ToolCallDisplay }) {
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-muted-foreground">
           {tool.isLoading ? (
-            <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+            <div className="animate-spin">
+              <span className="block w-3 h-3 border-2 border-current border-t-transparent rounded-full" />
+            </div>
           ) : (
             <span className="text-primary">✓</span>
           )}

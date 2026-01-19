@@ -89,7 +89,9 @@ export function ChatMessages({
     <ScrollArea className="h-full" ref={scrollRef}>
       <div className="flex flex-col gap-6 p-6 max-w-3xl mx-auto">
         {messages.map((message) => (
-          <MessageBubble key={message.id} message={message} />
+          <div key={message.id} className="message-item">
+            <MessageBubble message={message} />
+          </div>
         ))}
 
         {/* Streaming message */}

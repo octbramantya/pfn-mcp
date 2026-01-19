@@ -183,4 +183,10 @@
     background-color: transparent;
     padding: 0;
   }
+
+  /* Performance: defer off-screen message rendering for long lists */
+  .message-item {
+    content-visibility: auto;
+    contain-intrinsic-size: 0 80px;
+  }
 }
