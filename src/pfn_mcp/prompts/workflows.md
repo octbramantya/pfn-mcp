@@ -12,18 +12,18 @@ get_wages_data(tenant="[TENANT]", aggregation="facility", period="7d", breakdown
 ```
 
 **Identify dates from context:**
-- Today = [CURRENT_DATE] → may have INCOMPLETE/partial data
-- Yesterday = [YESTERDAY_DATE] → should have COMPLETE data (use this for report)
+- Today = [CURRENT_DATE] → day in progress (still accumulating)
+- Yesterday = [YESTERDAY_DATE] → full day data (use this for report)
 - Day before = [DAY_BEFORE_YESTERDAY]
 
-**IMPORTANT:** The last entry in daily breakdown may be TODAY's partial data (low kWh).
+**IMPORTANT:** The last entry in daily breakdown may be TODAY's data (lower kWh is normal - day still in progress).
 Always match dates explicitly - "yesterday" means [YESTERDAY_DATE], NOT the last row.
 
 **Present:**
 1. Yesterday's ([YESTERDAY_DATE]) total consumption (kWh) and cost (IDR)
 2. Comparison vs day-before ([DAY_BEFORE_YESTERDAY]) (% change)
 3. Comparison vs 7-day average (% change)
-4. Note if today's data appears incomplete
+4. Optionally mention today's consumption so far
 
 Format as brief executive summary (4-6 lines).
 
