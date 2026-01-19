@@ -13,6 +13,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from pfn_mcp.prompts import get_current_datetime_context
+
 from .config import chat_settings
 
 logger = logging.getLogger(__name__)
@@ -63,6 +65,31 @@ def get_static_prompt() -> str:
     return "\n\n".join(parts)
 
 
+def _replace_date_placeholders(prompt: str) -> str:
+    """Replace date placeholders with current values (WIB timezone).
+
+    Placeholders replaced:
+    - [CURRENT_DATETIME] -> 2026-01-19 14:30 WIB
+    - [CURRENT_DATE] -> 2026-01-19
+    - [CURRENT_DAY] -> Sunday
+    - [YESTERDAY_DATE] -> 2026-01-18
+    - [YESTERDAY_DAY] -> Saturday
+    - [DAY_BEFORE_YESTERDAY] -> 2026-01-17
+    """
+    dt = get_current_datetime_context()
+    replacements = {
+        "[CURRENT_DATETIME]": dt["current_datetime"],
+        "[CURRENT_DATE]": dt["current_date"],
+        "[CURRENT_DAY]": dt["current_day"],
+        "[YESTERDAY_DATE]": dt["yesterday_date"],
+        "[YESTERDAY_DAY]": dt["yesterday_day"],
+        "[DAY_BEFORE_YESTERDAY]": dt["day_before_yesterday"],
+    }
+    for placeholder, value in replacements.items():
+        prompt = prompt.replace(placeholder, value)
+    return prompt
+
+
 def build_system_prompt(
     tenant_name: str | None = None,
     enable_cache: bool = True,
@@ -79,6 +106,9 @@ def build_system_prompt(
         If enable_cache=False: Plain string (for compatibility)
     """
     static_prompt = get_static_prompt()
+
+    # Replace date placeholders with current values (runs per-request)
+    static_prompt = _replace_date_placeholders(static_prompt)
 
     if not enable_cache:
         # Simple string format (backwards compatible)
