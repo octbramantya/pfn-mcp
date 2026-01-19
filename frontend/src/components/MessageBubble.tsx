@@ -7,9 +7,10 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { Message, ToolCallDisplay } from '@/lib/types';
 
-// Dynamic import react-markdown to reduce initial bundle size (~50KB+ gzipped)
-const ReactMarkdown = dynamic(
-  () => import('react-markdown'),
+// Dynamic import Markdown component to reduce initial bundle size
+// Includes react-markdown + remark-gfm for GFM tables, strikethrough, etc.
+const Markdown = dynamic(
+  () => import('@/components/Markdown').then((mod) => mod.Markdown),
   {
     ssr: false,
     loading: () => <Skeleton className="h-4 w-3/4" />,
@@ -104,9 +105,9 @@ export function MessageBubble({
             ) : (
               /* AI message - no bubble, flows naturally */
               <div className="prose dark:prose-invert max-w-none break-words">
-                <ReactMarkdown>
+                <Markdown>
                   {displayContent || (isStreaming ? '' : message.content)}
-                </ReactMarkdown>
+                </Markdown>
                 {isStreaming && !isThinking && (
                   <span className="inline-block w-2 h-4 bg-current animate-pulse ml-1" />
                 )}
