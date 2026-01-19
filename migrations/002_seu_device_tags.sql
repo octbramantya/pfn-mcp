@@ -12,18 +12,18 @@
 
 -- PRS: Compressors (tenant_id = 3)
 -- Significant energy users - compressed air system
-INSERT INTO device_tags (device_id, tag_key, tag_value, tag_category, tag_description, is_active)
+INSERT INTO device_tags (device_id, tag_key, tag_value, tag_category, is_active)
 VALUES
-    (XX, 'seu_type', 'compressor', 'energy_management', 'Compressor - Significant Energy User', true),
-    (YY, 'seu_type', 'compressor', 'energy_management', 'Compressor - Significant Energy User', true)
+    (XX, 'seu_type', 'compressor', 'energy_management', true),
+    (YY, 'seu_type', 'compressor', 'energy_management', true)
 ON CONFLICT DO NOTHING;
 
 -- IOP: Press machines (tenant_id = 4)
 -- Significant energy users - press/stamping equipment
-INSERT INTO device_tags (device_id, tag_key, tag_value, tag_category, tag_description, is_active)
+INSERT INTO device_tags (device_id, tag_key, tag_value, tag_category, is_active)
 VALUES
-    (AA, 'seu_type', 'press_machine', 'energy_management', 'Press Machine - Significant Energy User', true),
-    (BB, 'seu_type', 'press_machine', 'energy_management', 'Press Machine - Significant Energy User', true)
+    (AA, 'seu_type', 'press_machine', 'energy_management', true),
+    (BB, 'seu_type', 'press_machine', 'energy_management', true)
 ON CONFLICT DO NOTHING;
 
 -- Verification query (run after migration):
