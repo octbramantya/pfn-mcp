@@ -4,67 +4,95 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-PFN MCP Server - A Model Context Protocol server providing natural language access to the Valkyrie energy monitoring database (PostgreSQL + TimescaleDB). Enables querying energy consumption, power demand, and WAGES (Water, Air, Gas, Electricity, Steam) metrics without SQL.
+PFN Energy Intelligence - A conversational AI interface for the Valkyrie energy monitoring database (PostgreSQL + TimescaleDB). Enables querying energy consumption, power demand, and WAGES (Water, Air, Gas, Electricity, Steam) metrics through natural language.
+
+**Stack:**
+- **Frontend:** Next.js/React (`frontend/`)
+- **Backend:** FastAPI + Anthropic SDK (`src/pfn_mcp/chat/`)
+- **Tools:** MCP server with tool definitions (`src/pfn_mcp/tools/`)
+- **Database:** PostgreSQL + TimescaleDB
 
 ## Commands
 
 ```bash
-# Install dependencies
-pip install -e ".[dev]"
+# Backend
+pip install -e ".[dev]"      # Install dependencies
+pfn-mcp                       # Run MCP server (stdio)
+pfn-chat                      # Run chat API server (HTTP)
+ruff check src/               # Lint
+ruff check src/ --fix         # Auto-fix lint issues
+pytest                        # Run tests
+pytest tests/test_file.py::test_name -v  # Single test
 
-# Run the MCP server
-pfn-mcp
-
-# Lint
-ruff check src/
-
-# Auto-fix lint issues
-ruff check src/ --fix
-
-# Run tests
-pytest
-
-# Run single test
-pytest tests/test_file.py::test_name -v
+# Frontend
+cd frontend
+npm install                   # Install dependencies
+npm run dev                   # Development server (port 3000)
+npm run build                 # Production build
 ```
 
 ## Configuration
 
-Copy `.env.example` to `.env` with database credentials:
+Copy `.env.example` to `.env`:
 - `DATABASE_URL` - PostgreSQL connection string
 - `DB_POOL_MIN_SIZE`, `DB_POOL_MAX_SIZE` - Connection pool settings
 - `DB_QUERY_TIMEOUT` - Query timeout in seconds
+- `ANTHROPIC_API_KEY` - For chat backend
+- `KEYCLOAK_URL`, `KEYCLOAK_REALM` - For authentication
 
 ## Architecture
 
 ```
 src/pfn_mcp/
-├── server.py      # MCP server entry point, call_tool handlers
-├── tools.yaml     # Tool schemas - SOURCE OF TRUTH for all tool definitions
-├── tool_schema.py # YAML→Tool loader (yaml_to_tools, get_tool_metadata)
-├── db.py          # asyncpg connection pool (init_pool, fetch_all, fetch_one, fetch_val)
-├── config.py      # Pydantic settings from environment
-├── sse_server.py  # SSE/HTTP transport for remote deployment (VPS)
-└── tools/         # Tool implementations (one file per tool group)
-    ├── tenants.py           # list_tenants
-    ├── devices.py           # list_devices with fuzzy match ranking
-    ├── quantities.py        # list_quantities with QUANTITY_ALIASES for semantic search
-    ├── device_quantities.py # list_device_quantities, compare_device_quantities
-    ├── discovery.py         # Data exploration tools (data range, freshness, info)
-    ├── telemetry.py         # Phase 2 time-series tools (resolve_device, etc.)
-    ├── electricity_cost.py  # Electricity cost tools (daily aggregates, breakdowns)
-    ├── group_telemetry.py   # Group telemetry tools (by tag or asset hierarchy)
-    ├── peak_analysis.py     # Peak analysis tools (find peak values with timestamps)
-    ├── formula_parser.py    # Parse device formulas (94+11+27, 94-84, (A+B)-(C))
-    └── wages_data.py        # Unified WAGES tool (replaces cost/group/peak tools)
+├── chat/              # Chat API backend (Anthropic SDK)
+│   ├── app.py         # FastAPI routes (/chat, /conversations)
+│   ├── llm.py         # Claude client with streaming
+│   ├── tool_executor.py   # Execute MCP tools from LLM calls
+│   ├── tool_registry.py   # Load tools from tools.yaml
+│   ├── prompts.py     # System prompts and workflows
+│   ├── auth.py        # Keycloak JWT validation
+│   ├── conversations.py   # Conversation persistence
+│   └── config.py      # Chat-specific settings
+├── server.py          # MCP server entry point, call_tool handlers
+├── tools.yaml         # Tool schemas - SOURCE OF TRUTH
+├── tool_schema.py     # YAML→Tool loader
+├── db.py              # asyncpg connection pool
+├── config.py          # Pydantic settings
+├── sse_server.py      # SSE/HTTP transport (legacy)
+├── prompts/           # Workflow definitions
+│   └── workflows.md   # Slash command workflows (/daily-digest, etc.)
+└── tools/             # Tool implementations
+    ├── tenants.py     # list_tenants
+    ├── devices.py     # list_devices with fuzzy match
+    ├── quantities.py  # list_quantities with semantic search
+    ├── aggregations.py    # list_aggregations (departments, facility)
+    ├── discovery.py   # Data exploration tools
+    ├── telemetry.py   # Time-series tools
+    ├── electricity_cost.py  # Cost tools (deprecated)
+    ├── group_telemetry.py   # Group tools (deprecated)
+    ├── wages_data.py  # Unified WAGES tool
+    └── formula_parser.py    # Device formula parser
+
+frontend/
+├── src/
+│   ├── app/           # Next.js pages
+│   │   ├── chat/      # Main chat interface
+│   │   └── login/     # Auth pages
+│   ├── components/    # React components
+│   │   ├── ChatMessages.tsx
+│   │   ├── ChatInput.tsx
+│   │   ├── MessageBubble.tsx
+│   │   └── Markdown.tsx
+│   ├── contexts/      # React contexts (Auth, Conversations)
+│   └── lib/           # Utilities (api, auth, sse, types)
 ```
 
 **Key patterns:**
 - Tool schemas defined in `tools.yaml` (name, description, params, tenant_aware)
-- `server.py` loads schemas via `yaml_to_tools()` and contains call_tool handlers
-- Each tool module exports async function(s) and `format_*_response()` formatter
+- Chat backend calls tools directly via `tool_executor.py` (no MCP protocol)
+- Frontend uses SSE for streaming responses
+- Workflows defined in `prompts/workflows.md` for slash commands
 - Database queries use positional parameters (`$1`, `$2`) for asyncpg
-- Semantic search via `QUANTITY_ALIASES` dict in quantities.py
 
 ## Available Tools (Phase 1)
 
@@ -80,6 +108,7 @@ src/pfn_mcp/
 | `get_device_info` | Full device details; search by ID, name, or IP+slave_id |
 | `check_data_freshness` | Identify offline/stale/online meters |
 | `get_tenant_summary` | Tenant overview with device counts and models |
+| `get_date_info` | Get weekday name for a date (today, yesterday, or YYYY-MM-DD) |
 
 ## Available Tools (Phase 2 - Telemetry)
 
@@ -107,6 +136,7 @@ Period formats supported: `7d`, `30d`, `1M`, `2025-12`, `2025-12-01 to 2025-12-1
 |------|-------------|
 | `list_tags` | List available device tags for grouping (by process, building, area, etc.) |
 | `list_tag_values` | List all values for a tag key with device counts |
+| `list_aggregations` | List named meter aggregations (facility totals, departments) |
 | `get_group_telemetry` | Aggregated telemetry for a group - default: electricity; with quantity: any WAGES metric |
 | `compare_groups` | Compare consumption across multiple groups side-by-side |
 
@@ -188,8 +218,7 @@ bd sync                     # Sync with git (run before push)
 ## Session End Protocol
 
 Before completing work, always:
-1. `/tool-update` - Sync MCP tools with Open WebUI wrapper (if tools were modified)
-2. `git add` changed files
-3. `bd sync`
-4. `git commit`
-5. `git push`
+1. `git add` changed files
+2. `bd sync`
+3. `git commit`
+4. `git push`

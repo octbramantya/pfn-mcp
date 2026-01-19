@@ -213,6 +213,16 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             logger.error(f"get_tenant_summary failed: {e}")
             return [TextContent(type="text", text=f"Error: {e}")]
 
+    elif name == "get_date_info":
+        date_input = arguments.get("date", "today")
+        try:
+            result = discovery_tool.get_date_info(date_input=date_input)
+            response = discovery_tool.format_date_info_response(result)
+            return [TextContent(type="text", text=response)]
+        except Exception as e:
+            logger.error(f"get_date_info failed: {e}")
+            return [TextContent(type="text", text=f"Error: {e}")]
+
     elif name == "resolve_device":
         search = arguments.get("search", "")
         tenant = arguments.get("tenant")

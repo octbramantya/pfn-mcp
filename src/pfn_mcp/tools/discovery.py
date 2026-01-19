@@ -1080,3 +1080,56 @@ def format_tenant_summary_response(result: dict) -> str:
             lines.append(f"- {manufacturer} {model}: {m['count']} devices")
 
     return "\n".join(lines)
+
+
+def get_date_info(date_input: str = "today") -> dict:
+    """
+    Get date information including weekday.
+
+    This is a utility tool to help LLMs correctly identify the day of the week
+    for a given date, avoiding common errors in date-to-weekday calculations.
+
+    Args:
+        date_input: One of:
+            - "today" (default)
+            - "yesterday"
+            - "YYYY-MM-DD" format
+
+    Returns:
+        Dictionary with date, weekday, and weekend flag
+    """
+    from datetime import timedelta
+
+    now = datetime.now()
+
+    if date_input == "today":
+        dt = now
+    elif date_input == "yesterday":
+        dt = now - timedelta(days=1)
+    else:
+        try:
+            dt = datetime.strptime(date_input, "%Y-%m-%d")
+        except ValueError:
+            return {
+                "error": f"Invalid date format: {date_input}. "
+                "Use 'today', 'yesterday', or 'YYYY-MM-DD'"
+            }
+
+    return {
+        "date": dt.strftime("%Y-%m-%d"),
+        "weekday": dt.strftime("%A"),
+        "weekday_short": dt.strftime("%a"),
+        "is_weekend": dt.weekday() >= 5,
+        "day_of_week": dt.weekday(),  # 0=Monday, 6=Sunday
+    }
+
+
+def format_date_info_response(result: dict) -> str:
+    """Format date info result for human-readable output."""
+    if "error" in result:
+        return f"Error: {result['error']}"
+
+    weekend_indicator = " (Weekend)" if result["is_weekend"] else ""
+    return (
+        f"**{result['date']}** is a **{result['weekday']}**{weekend_indicator}"
+    )

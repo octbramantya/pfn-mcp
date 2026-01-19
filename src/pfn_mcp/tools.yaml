@@ -185,6 +185,18 @@ tools:
         type: string
         description: Tenant name (fuzzy search)
 
+  - name: get_date_info
+    tenant_aware: false
+    description: >-
+      Get date information including weekday name.
+      Use this tool to verify the day of the week for any date.
+      Helps avoid errors when referencing days in reports (e.g., "yesterday was Sunday").
+    params:
+      - name: date
+        type: string
+        description: "Date to check: 'today', 'yesterday', or 'YYYY-MM-DD' format (default: today)"
+        default: today
+
   # ===========================================================================
   # PHASE 2: Telemetry Tools
   # ===========================================================================
