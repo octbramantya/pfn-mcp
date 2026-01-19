@@ -11,11 +11,19 @@ Slash commands are pre-defined tool chains that skip exhaustive tool search.
 get_wages_data(tenant="[TENANT]", aggregation="facility", period="7d", breakdown="daily")
 ```
 
+**Identify dates from context:**
+- Today = [CURRENT_DATE] → may have INCOMPLETE/partial data
+- Yesterday = [YESTERDAY_DATE] → should have COMPLETE data (use this for report)
+- Day before = [DAY_BEFORE_YESTERDAY]
+
+**IMPORTANT:** The last entry in daily breakdown may be TODAY's partial data (low kWh).
+Always match dates explicitly - "yesterday" means [YESTERDAY_DATE], NOT the last row.
+
 **Present:**
-1. Yesterday's total consumption (kWh) and cost (IDR)
-2. Comparison vs day-before (% change)
+1. Yesterday's ([YESTERDAY_DATE]) total consumption (kWh) and cost (IDR)
+2. Comparison vs day-before ([DAY_BEFORE_YESTERDAY]) (% change)
 3. Comparison vs 7-day average (% change)
-4. Anomalies (any day >15% deviation)
+4. Note if today's data appears incomplete
 
 Format as brief executive summary (4-6 lines).
 
