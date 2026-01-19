@@ -8,7 +8,14 @@ Slash commands are pre-defined tool chains that skip exhaustive tool search.
 
 **Execute:**
 ```
+# Step 1: Facility totals (7 days for comparison)
 get_wages_data(tenant="[TENANT]", aggregation="facility", period="7d", breakdown="daily")
+
+# Step 2: Discover departments
+list_aggregations(tenant="[TENANT]", aggregation_type="department")
+
+# Step 3: For each department, get yesterday's data
+get_wages_data(tenant="[TENANT]", aggregation="[DEPT_NAME]", period="yesterday")
 ```
 
 **Identify dates from context:**
@@ -20,12 +27,20 @@ get_wages_data(tenant="[TENANT]", aggregation="facility", period="7d", breakdown
 Always match dates explicitly - "yesterday" means [YESTERDAY_DATE], NOT the last row.
 
 **Present:**
-1. Yesterday's ([YESTERDAY_DATE]) total consumption (kWh) and cost (IDR)
-2. Comparison vs day-before ([DAY_BEFORE_YESTERDAY]) (% change)
-3. Comparison vs 7-day average (% change)
-4. Optionally mention today's consumption so far
+1. **Facility Summary:**
+   - Yesterday's ([YESTERDAY_DATE]) total consumption (kWh) and cost (IDR)
+   - Comparison vs day-before ([DAY_BEFORE_YESTERDAY]) (% change)
+   - Comparison vs 7-day average (% change)
 
-Format as brief executive summary (4-6 lines).
+2. **Department Breakdown** (side-by-side table, NOT ranked):
+   | Department | Yesterday | Day-before | Change |
+   |------------|-----------|------------|--------|
+   | Yarn | X kWh | Y kWh | +/-Z% |
+   | Fabric | A kWh | B kWh | +/-C% |
+
+3. Optionally mention today's consumption so far
+
+Format facility summary as brief executive summary (4-6 lines), followed by department table.
 
 ---
 
@@ -64,14 +79,27 @@ get_wages_data(tenant="[TENANT]", aggregation="facility", quantity_search="power
 
 **Execute:**
 ```
+# Step 1: Facility totals
 get_wages_data(tenant="[TENANT]", aggregation="facility", period="7d")
-get_wages_data(tenant="[TENANT]", aggregation="facility", period="7d", breakdown="device")
+
+# Step 2: Discover departments
+list_aggregations(tenant="[TENANT]", aggregation_type="department")
+
+# Step 3: For each department, get weekly data
+get_wages_data(tenant="[TENANT]", aggregation="[DEPT_NAME]", period="7d")
 ```
 
 **Present:**
-- Total consumption and cost
-- Top 5 cost drivers
-- Week-over-week trend
+1. **Facility Total:**
+   - Total consumption (kWh) for the week
+   - Total cost (IDR) for the week
+   - Week-over-week trend (if available)
+
+2. **Department Breakdown** (side-by-side table with % of facility):
+   | Department | This Week | % of Facility |
+   |------------|-----------|---------------|
+   | Yarn | X,XXX kWh | YY% |
+   | Fabric | A,AAA kWh | BB% |
 
 ---
 

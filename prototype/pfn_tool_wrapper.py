@@ -2,7 +2,7 @@
 title: PFN Energy Tools
 description: Tenant-scoped energy monitoring tools powered by PFN MCP
 author: PFN Team
-version: 0.5.1
+version: 0.5.2
 license: MIT
 
 Thin wrapper that injects tenant context into MCP tool calls.
@@ -239,6 +239,11 @@ class Tools:
         tenant = self._get_tenant_code(__user__)
         return await self._call_mcp("list_tag_values", {"tenant": tenant, "tag_key": tag_key}, __user__)
 
+    async def list_aggregations(self, aggregation_type: str = "", __user__: dict = None) -> str:
+        """List available meter aggregations (departments, facility totals)."""
+        tenant = self._get_tenant_code(__user__)
+        return await self._call_mcp("list_aggregations", {"tenant": tenant, "aggregation_type": aggregation_type or None}, __user__)
+
     async def get_group_telemetry(self, tag_key: str = "", tag_value: str = "", tags: str = "", period: str = "7d", breakdown: str = "none", __user__: dict = None) -> str:
         """Get aggregated telemetry for a device group. Use tags for multi-tag AND: 'key1:val1,key2:val2'"""
         tenant = self._get_tenant_code(__user__)
@@ -261,6 +266,19 @@ class Tools:
         """Find peak values with timestamps for tenant devices."""
         tenant = self._get_tenant_code(__user__)
         return await self._call_mcp("get_peak_analysis", {"tenant": tenant, "quantity_search": quantity, "period": period, "top_n": top_n}, __user__)
+
+    async def get_wages_data(self, aggregation: str = "", device: str = "", tag_key: str = "", tag_value: str = "", period: str = "7d", breakdown: str = "none", __user__: dict = None) -> str:
+        """Unified WAGES data tool - energy cost, consumption, peaks."""
+        tenant = self._get_tenant_code(__user__)
+        params = {"tenant": tenant, "period": period, "breakdown": breakdown}
+        if aggregation:
+            params["aggregation"] = aggregation
+        if device:
+            params["device_name"] = device
+        if tag_key and tag_value:
+            params["tag_key"] = tag_key
+            params["tag_value"] = tag_value
+        return await self._call_mcp("get_wages_data", params, __user__)
 
     # =========================================================================
     # GLOBAL TOOLS (no tenant injection)

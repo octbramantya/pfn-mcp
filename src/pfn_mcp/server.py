@@ -11,6 +11,7 @@ from mcp.types import TextContent, Tool
 from pfn_mcp import db
 from pfn_mcp.config import settings
 from pfn_mcp.tool_schema import yaml_to_tools
+from pfn_mcp.tools import aggregations as aggregations_tool
 from pfn_mcp.tools import device_quantities as device_quantities_tool
 from pfn_mcp.tools import devices as devices_tool
 from pfn_mcp.tools import discovery as discovery_tool
@@ -370,6 +371,21 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text=response)]
         except Exception as e:
             logger.error(f"list_tag_values failed: {e}")
+            return [TextContent(type="text", text=f"Error: {e}")]
+
+    elif name == "list_aggregations":
+        tenant = arguments.get("tenant")
+        if not tenant:
+            return [TextContent(type="text", text="Error: tenant is required")]
+        try:
+            result = await aggregations_tool.list_aggregations(
+                tenant=tenant,
+                aggregation_type=arguments.get("aggregation_type"),
+            )
+            response = aggregations_tool.format_list_aggregations_response(result)
+            return [TextContent(type="text", text=response)]
+        except Exception as e:
+            logger.error(f"list_aggregations failed: {e}")
             return [TextContent(type="text", text=f"Error: {e}")]
 
     elif name == "search_tags":

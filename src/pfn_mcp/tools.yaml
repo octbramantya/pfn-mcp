@@ -477,6 +477,23 @@ tools:
         description: "Tag key to list values for (e.g., 'process', 'building')"
         required: true
 
+  - name: list_aggregations
+    tenant_aware: true
+    description: >-
+      List available meter aggregations (named formulas) for a tenant.
+      Aggregations define facility totals, departments, or custom calculations.
+      Example: "facility" = 94+11+27 (Main + Genset + Solar).
+      Use to discover available aggregation names for get_wages_data.
+    params:
+      - name: tenant
+        type: string
+        description: "Tenant name or code (e.g., 'PRS')"
+        required: true
+      - name: aggregation_type
+        type: string
+        description: "Filter by type: facility, department, sub_panel, custom"
+        enum: [facility, department, sub_panel, custom]
+
   - name: search_tags
     tenant_aware: false
     description: >-
