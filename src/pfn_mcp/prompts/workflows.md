@@ -16,6 +16,12 @@ list_aggregations(tenant="[TENANT]", aggregation_type="department")
 
 # Step 3: For each department, get yesterday's data
 get_wages_data(tenant="[TENANT]", aggregation="[DEPT_NAME]", period="yesterday")
+
+# Step 4: Discover SEU types (skip SEU section if no results)
+list_tag_values(tenant="[TENANT]", tag_key="seu_type")
+
+# Step 5: For each SEU type found, get yesterday's data
+get_wages_data(tenant="[TENANT]", tag_key="seu_type", tag_value="[SEU_TYPE]", period="yesterday")
 ```
 
 **Identify dates from context:**
@@ -38,7 +44,15 @@ Always match dates explicitly - "yesterday" means [YESTERDAY_DATE], NOT the last
    | Yarn | X kWh | Y kWh | +/-Z% |
    | Fabric | A kWh | B kWh | +/-C% |
 
-3. Optionally mention today's consumption so far
+3. **Significant Energy Users (SEU)** (if seu_type tags exist - skip if none found):
+   | SEU Category | Yesterday | % of Facility |
+   |--------------|-----------|---------------|
+   | Compressors | X kWh | Y% |
+   | Press Machines | A kWh | B% |
+
+   Calculate % of facility: SEU consumption / facility total * 100
+
+4. Optionally mention today's consumption so far
 
 Format facility summary as brief executive summary (4-6 lines), followed by department table.
 
@@ -87,6 +101,12 @@ list_aggregations(tenant="[TENANT]", aggregation_type="department")
 
 # Step 3: For each department, get weekly data
 get_wages_data(tenant="[TENANT]", aggregation="[DEPT_NAME]", period="7d")
+
+# Step 4: Discover SEU types (skip SEU section if no results)
+list_tag_values(tenant="[TENANT]", tag_key="seu_type")
+
+# Step 5: For each SEU type, get weekly data with device breakdown
+get_wages_data(tenant="[TENANT]", tag_key="seu_type", tag_value="[SEU_TYPE]", period="7d", breakdown="device")
 ```
 
 **Present:**
@@ -100,6 +120,14 @@ get_wages_data(tenant="[TENANT]", aggregation="[DEPT_NAME]", period="7d")
    |------------|-----------|---------------|
    | Yarn | X,XXX kWh | YY% |
    | Fabric | A,AAA kWh | BB% |
+
+3. **Significant Energy Users (SEU)** (if seu_type tags exist - skip if none found):
+   | SEU Category | This Week | % of Facility | Top Device |
+   |--------------|-----------|---------------|------------|
+   | Compressors | X,XXX kWh | Y% | Comp-1: Z kWh |
+   | Press Machines | A,AAA kWh | B% | Press-1: C kWh |
+
+   Calculate % of facility: SEU consumption / facility total * 100
 
 ---
 
