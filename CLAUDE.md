@@ -92,6 +92,7 @@ frontend/
 - Chat backend calls tools directly via `tool_executor.py` (no MCP protocol)
 - Frontend uses SSE for streaming responses
 - Workflows defined in `prompts/workflows.md` for slash commands
+- `/daily-digest` and `/weekly-summary` auto-discover SEU via `seu_type` tags
 - Database queries use positional parameters (`$1`, `$2`) for asyncpg
 
 ## Available Tools (Phase 1)
@@ -194,7 +195,8 @@ Features:
 - **Device Tags**: `device_tags` table for flexible device grouping
   - Columns: device_id, tag_key, tag_value, tag_category, is_active
   - Example tags: process=Waterjet, building=Factory A
-  - Used by `get_group_telemetry` for aggregating consumption by group
+  - SEU tags: `seu_type=compressor` (PRS), `seu_type=press_machine` (IOP)
+  - Used by `get_group_telemetry` and workflows for aggregating consumption by group
 - **Assets**: `assets` table with hierarchical structure (parent_id, utility_path)
   - Database functions: `get_all_downstream_assets()`, `get_downstream_devices_by_depth()`
 - **Meter Aggregations**: `meter_aggregations` table for named formula-based device groups
