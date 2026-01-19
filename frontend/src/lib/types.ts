@@ -90,6 +90,7 @@ export type ChatEvent =
   | { type: 'content'; text: string }
   | { type: 'tool_call'; name: string; call_id: string }
   | { type: 'tool_result'; name: string; result: string }
+  | { type: 'title_update'; id: string; title: string }
   | { type: 'done'; input_tokens: number; output_tokens: number }
   | { type: 'error'; message: string };
 

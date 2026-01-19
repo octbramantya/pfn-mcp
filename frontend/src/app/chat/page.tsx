@@ -23,7 +23,7 @@ export default function ChatPage() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const streamingContentRef = useRef<string>('');
 
-  const { conversations, refresh, activeConversationId, setActiveConversationId, isNewChat, clearNewChatFlag } = useConversations();
+  const { conversations, refresh, activeConversationId, setActiveConversationId, isNewChat, clearNewChatFlag, updateConversationTitle } = useConversations();
 
   // Load conversation when active conversation changes
   useEffect(() => {
@@ -56,6 +56,74 @@ export default function ChatPage() {
     }
   }, [conversations, activeConversationId, setActiveConversationId, isNewChat]);
 
+  const handleStreamEvent = useCallback(
+    (event: ChatEvent, onConversationId: (id: string) => void) => {
+      switch (event.type) {
+        case 'conversation':
+          if (event.is_new) {
+            onConversationId(event.id);
+          }
+          break;
+
+        case 'content':
+          streamingContentRef.current += event.text;
+          setStreamingMessage((prev) =>
+            prev
+              ? { ...prev, content: prev.content + event.text }
+              : { role: 'assistant', content: event.text, isStreaming: true, toolCalls: [] }
+          );
+          break;
+
+        case 'tool_call':
+          setStreamingMessage((prev) => {
+            if (!prev) return prev;
+            const toolCall: ToolCallDisplay = {
+              name: event.name,
+              call_id: event.call_id,
+              isLoading: true,
+            };
+            return { ...prev, toolCalls: [...prev.toolCalls, toolCall] };
+          });
+          break;
+
+        case 'tool_result':
+          setStreamingMessage((prev) => {
+            if (!prev) return prev;
+            const updatedTools = prev.toolCalls.map((tc) =>
+              tc.name === event.name && tc.isLoading
+                ? { ...tc, result: event.result, isLoading: false }
+                : tc
+            );
+            return { ...prev, toolCalls: updatedTools };
+          });
+          break;
+
+        case 'title_update':
+          updateConversationTitle(event.id, event.title);
+          break;
+
+        case 'done':
+          setStreamingMessage((prev) =>
+            prev ? { ...prev, isStreaming: false } : null
+          );
+          break;
+
+        case 'error':
+          setStreamingMessage((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  content: prev.content + (prev.content ? '\n\n' : '') + 'Error: ' + event.message,
+                  isStreaming: false,
+                }
+              : null
+          );
+          break;
+      }
+    },
+    [updateConversationTitle]
+  );
+
   const handleSendMessage = useCallback(
     async (content: string) => {
       if (isLoading) return;
@@ -85,14 +153,11 @@ export default function ChatPage() {
       abortControllerRef.current = new AbortController();
 
       try {
-        let newConversationId = conversationId;
-
         for await (const event of streamChat(
           { message: content, conversation_id: conversationId },
           abortControllerRef.current.signal
         )) {
           handleStreamEvent(event, async (id) => {
-            newConversationId = id;
             setConversationId(id);
             setActiveConversationId(id);
             clearNewChatFlag(); // Conversation created, reset flag
@@ -132,72 +197,8 @@ export default function ChatPage() {
         abortControllerRef.current = null;
       }
     },
-    [conversationId, isLoading, messages.length, refresh, setActiveConversationId]
+    [conversationId, isLoading, messages.length, refresh, setActiveConversationId, clearNewChatFlag, handleStreamEvent]
   );
-
-  const handleStreamEvent = (
-    event: ChatEvent,
-    onConversationId: (id: string) => void
-  ) => {
-    switch (event.type) {
-      case 'conversation':
-        if (event.is_new) {
-          onConversationId(event.id);
-        }
-        break;
-
-      case 'content':
-        streamingContentRef.current += event.text;
-        setStreamingMessage((prev) =>
-          prev
-            ? { ...prev, content: prev.content + event.text }
-            : { role: 'assistant', content: event.text, isStreaming: true, toolCalls: [] }
-        );
-        break;
-
-      case 'tool_call':
-        setStreamingMessage((prev) => {
-          if (!prev) return prev;
-          const toolCall: ToolCallDisplay = {
-            name: event.name,
-            call_id: event.call_id,
-            isLoading: true,
-          };
-          return { ...prev, toolCalls: [...prev.toolCalls, toolCall] };
-        });
-        break;
-
-      case 'tool_result':
-        setStreamingMessage((prev) => {
-          if (!prev) return prev;
-          const updatedTools = prev.toolCalls.map((tc) =>
-            tc.name === event.name && tc.isLoading
-              ? { ...tc, result: event.result, isLoading: false }
-              : tc
-          );
-          return { ...prev, toolCalls: updatedTools };
-        });
-        break;
-
-      case 'done':
-        setStreamingMessage((prev) =>
-          prev ? { ...prev, isStreaming: false } : null
-        );
-        break;
-
-      case 'error':
-        setStreamingMessage((prev) =>
-          prev
-            ? {
-                ...prev,
-                content: prev.content + (prev.content ? '\n\n' : '') + 'Error: ' + event.message,
-                isStreaming: false,
-              }
-            : null
-        );
-        break;
-    }
-  };
 
   const handleStopGeneration = useCallback(() => {
     if (abortControllerRef.current) {

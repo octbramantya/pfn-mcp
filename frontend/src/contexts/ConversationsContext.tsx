@@ -21,6 +21,7 @@ interface ConversationsContextType {
   startNewChat: () => void;
   isNewChat: boolean;
   clearNewChatFlag: () => void;
+  updateConversationTitle: (id: string, title: string) => void;
 }
 
 const ConversationsContext = createContext<ConversationsContextType | undefined>(undefined);
@@ -51,6 +52,12 @@ export function ConversationsProvider({ children }: { children: ReactNode }) {
     setIsNewChat(false);
   }, []);
 
+  const updateConversationTitle = useCallback((id: string, title: string) => {
+    setConversations((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, title } : c))
+    );
+  }, []);
+
   // Load conversations on mount
   useEffect(() => {
     refresh();
@@ -67,6 +74,7 @@ export function ConversationsProvider({ children }: { children: ReactNode }) {
         startNewChat,
         isNewChat,
         clearNewChatFlag,
+        updateConversationTitle,
       }}
     >
       {children}

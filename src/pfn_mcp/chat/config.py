@@ -46,6 +46,11 @@ class ChatSettings(BaseSettings):
     # Caches static prompt portions, reduces cost by ~90% on cache hits
     enable_prompt_cache: bool = True
 
+    # Title generation settings
+    title_model: str = "claude-3-haiku-20240307"
+    title_max_tokens: int = 60
+    title_generation_enabled: bool = True
+
     # Development mode - accepts mock JWT tokens from frontend
     dev_auth: bool = False
 

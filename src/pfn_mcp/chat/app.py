@@ -1,5 +1,6 @@
 """FastAPI application for PFN Chat API."""
 
+import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
@@ -7,6 +8,7 @@ from datetime import datetime
 from urllib.parse import urlencode
 from uuid import UUID
 
+import anthropic
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, StreamingResponse
@@ -284,8 +286,8 @@ async def switch_tenant(
 # System prompt is configured via chat_settings.system_prompt
 
 
-async def _generate_title(first_message: str) -> str:
-    """Generate a title for the conversation from the first message."""
+async def _generate_fallback_title(first_message: str) -> str:
+    """Generate a fallback title for the conversation from the first message."""
     max_len = 35  # Shorter for better sidebar display
     title = first_message.strip()
 
@@ -306,6 +308,39 @@ async def _generate_title(first_message: str) -> str:
         truncated = truncated[:last_space]
 
     return truncated + "..."
+
+
+async def _generate_ai_title(
+    user_message: str,
+    assistant_response: str,
+) -> str | None:
+    """Generate AI-powered title for conversation."""
+    if not chat_settings.title_generation_enabled:
+        return None
+
+    response_summary = assistant_response[:500] if assistant_response else ""
+
+    prompt = f"""Generate a concise title (max 40 chars) for this energy monitoring conversation.
+
+User: {user_message[:200]}
+Assistant: {response_summary}
+
+Title (max 40 chars, no quotes):"""
+
+    try:
+        client = anthropic.AsyncAnthropic(api_key=chat_settings.anthropic_api_key)
+        response = await client.messages.create(
+            model=chat_settings.title_model,
+            max_tokens=chat_settings.title_max_tokens,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        title = response.content[0].text.strip().strip('"\'')
+        return title[:50] if title else None
+
+    except Exception as e:
+        logger.warning(f"Title generation failed: {e}")
+        return None
 
 
 @app.post("/api/chat")
@@ -364,8 +399,8 @@ async def chat(
                     yield f"event: error\ndata: {json.dumps(err)}\n\n"
                     return
             else:
-                # Create new conversation
-                title = await _generate_title(request.message)
+                # Create new conversation with fallback title
+                title = await _generate_fallback_title(request.message)
                 conversation = await create_conversation(
                     user_id=user.sub,
                     tenant_id=tenant_id,
@@ -517,6 +552,20 @@ async def chat(
                             name=result.tool_name,  # Required by some providers like MiniMax
                         )
                     )
+
+            # Generate AI title for new conversations
+            if is_new_conversation and accumulated_content:
+                try:
+                    ai_title = await asyncio.wait_for(
+                        _generate_ai_title(request.message, accumulated_content),
+                        timeout=3.0,
+                    )
+                    if ai_title:
+                        await update_conversation_title(conversation_id, user.sub, ai_title)
+                        title_data = {"id": str(conversation_id), "title": ai_title}
+                        yield f"event: title_update\ndata: {json.dumps(title_data)}\n\n"
+                except TimeoutError:
+                    logger.info("Title generation timed out, keeping fallback")
 
             # Send completion signal
             done_data = {
