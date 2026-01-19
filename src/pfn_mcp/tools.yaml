@@ -656,11 +656,15 @@ tools:
 
       **Scope selection (use ONE):**
       - device_id/device_name: Query single device
-      - tag_key + tag_value: Query devices by tag (SUM aggregated)
-      - tags: Multi-tag AND query [{"key": "...", "value": "..."}]
+      - tag_key + tag_value: Query by device ATTRIBUTE (e.g., process=Waterjet, equipment_type=Compressor)
+      - tags: Multi-tag AND query for combined attributes
       - asset_id: Query all devices under an asset hierarchy
-      - aggregation: Named aggregation from database (e.g., "facility", "yarn_division")
-      - formula: Inline device formula (e.g., "94+11+27", "94-84")
+      - aggregation: Named FORMULA with arithmetic (e.g., facility=94+11+27, yarn_division=94-84)
+      - formula: Inline device formula when you know specific device IDs
+
+      **Tags vs Aggregation - different purposes:**
+      - TAGS = "which devices are compressors?" → tag_key="equipment_type", tag_value="Compressor"
+      - AGGREGATION = "what's yarn division consumption?" → aggregation="yarn_division" (uses formula 94-84)
 
       **Quantity selection:**
       - Omit quantity params for electricity/energy cost (uses daily_energy_cost_summary)
@@ -688,23 +692,23 @@ tools:
         description: Single device name (fuzzy match)
       - name: tag_key
         type: string
-        description: "Tag key for group query (e.g., 'process', 'building', 'department')"
+        description: "Device attribute key. Use for 'what devices have this attribute?' queries. Examples: 'process', 'building', 'equipment_type'. Discover available keys via list_tags()."
       - name: tag_value
         type: string
-        description: "Tag value to match (e.g., 'Waterjet', 'Factory A')"
+        description: "Device attribute value. Examples: 'Waterjet', 'Factory A', 'Compressor'. Discover values via list_tag_values()."
       - name: tags
         type: array
         items: object
-        description: "Multi-tag AND query. Each item: {\"key\": \"...\", \"value\": \"...\"}"
+        description: "Multi-tag AND query for combined attributes. Example: [{\"key\": \"equipment_type\", \"value\": \"Compressor\"}, {\"key\": \"building\", \"value\": \"Factory A\"}]"
       - name: asset_id
         type: integer
         description: Asset ID for hierarchy-based grouping (includes all downstream devices)
       - name: aggregation
         type: string
-        description: "Named aggregation from meter_aggregations table (e.g., 'facility', 'yarn_division')"
+        description: "Named formula for calculated totals. Supports arithmetic (+/-). Examples: 'facility' (=94+11+27), 'yarn_division' (=94-84). Use for organizational/derived metrics, NOT device attributes."
       - name: formula
         type: string
-        description: "Inline device formula: '94+11+27' (sum), '94-84' (difference), '(94+11+27)-(84)' (grouped)"
+        description: "Inline device formula with arithmetic. Examples: '94+11+27' (sum), '94-84' (difference). Use when you know specific device IDs."
 
       # === Quantity ===
       - name: quantity_id
